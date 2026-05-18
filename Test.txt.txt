@@ -1,0 +1,1 @@
+To jest projekt moda Minecraft, zawiera klasy obsługi zdarzeń i logikę staminy

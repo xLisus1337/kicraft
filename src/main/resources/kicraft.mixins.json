@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.kicraft.kicraft.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "PlayerAnimatableMixin",
+    "ItemInHandRendererMixin",
+    "RangedAttributeMixin"
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
