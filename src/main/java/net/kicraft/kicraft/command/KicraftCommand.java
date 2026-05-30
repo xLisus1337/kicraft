@@ -12,25 +12,47 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.network.chat.Component;
 
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import net.minecraft.commands.SharedSuggestionProvider;
+
 public class KicraftCommand {
+
+    private static final SuggestionProvider<CommandSourceStack> SUGGEST_RACES = (context, builder) ->
+            SharedSuggestionProvider.suggest(new String[]{"Human", "Saiyan", "Half-Saiyan", "Namekian", "Frost Demon", "Android", "Bio-Android", "Majin"}, builder);
+
+    private static final SuggestionProvider<CommandSourceStack> SUGGEST_TECHNIQUES = (context, builder) ->
+            SharedSuggestionProvider.suggest(new String[]{"fly", "kisense", "it", "all"}, builder);
+
+    private static final SuggestionProvider<CommandSourceStack> SUGGEST_STATS = (context, builder) ->
+            SharedSuggestionProvider.suggest(new String[]{"maxki", "maxstamina", "strength", "durability", "maxhp", "kicontrol", "all"}, builder);
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("kicraft")
                 .requires(source -> source.hasPermission(2))
 
                 .then(Commands.literal("setrace")
+                        .executes(context -> {
+                            ServerPlayer player = context.getSource().getPlayer();
+                            if (player != null) {
+                                net.kicraft.kicraft.network.PacketHandler.sendToPlayer(new net.kicraft.kicraft.network.OpenRaceMenuS2CPacket(), player);
+                            }
+                            return 1;
+                        })
                         .then(Commands.argument("race", StringArgumentType.word())
+                                .suggests(SUGGEST_RACES)
                                 .executes(KicraftCommand::setRace)))
 
                 .then(Commands.literal("setstat")
                         .then(Commands.argument("target", StringArgumentType.word())
                                 .then(Commands.argument("stat", StringArgumentType.word())
+                                        .suggests(SUGGEST_STATS)
                                         .then(Commands.argument("value", LongArgumentType.longArg(0))
                                                 .executes(KicraftCommand::execute)))))
 
                 // --- NOWA KOMENDA NA TECHNIKI ---
                 .then(Commands.literal("technique")
                         .then(Commands.argument("tech", StringArgumentType.word())
+                                .suggests(SUGGEST_TECHNIQUES)
                                 .executes(KicraftCommand::setTechnique))));
     }
 
@@ -82,10 +104,7 @@ public class KicraftCommand {
         if (p != null) {
             p.getCapability(PlayerDataProvider.PLAYER_DATA).ifPresent(d -> {
                 switch (stat.toLowerCase()) {
-                    case "level" -> d.setLevel(v);
-                    case "ki" -> d.setKi(v);
                     case "maxki" -> d.setMaxKi(v);
-                    case "stamina" -> d.setStamina(v);
                     case "maxstamina" -> d.setMaxStamina(v);
                     case "strength" -> d.setStrength(v);
                     case "durability" -> d.setDurability(v);
@@ -98,7 +117,7 @@ public class KicraftCommand {
                     }
                     case "kicontrol" -> d.setKiControl(v);
                     case "all" -> {
-                        d.setLevel(v); d.setMaxKi(v * 100); d.setKi(v * 100);
+                        d.setMaxKi(v * 100); d.setKi(v * 100);
                         d.setMaxStamina(v * 100); d.setStamina(v * 100);
                         d.setStrength(v); d.setDurability(v); d.setKiControl(v);
                         d.setMaxHP(20 + (v * 2));

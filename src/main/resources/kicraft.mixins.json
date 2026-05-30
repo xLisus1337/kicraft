@@ -5,10 +5,14 @@
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "PlayerAnimatableMixin",
-    "ItemInHandRendererMixin",
     "RangedAttributeMixin"
   ],
   "client": [
+    "CameraMixin",
+    "EntityRenderDispatcherMixin",
+    "GuiMixin",
+    "ItemInHandRendererMixin",
+    "MouseHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

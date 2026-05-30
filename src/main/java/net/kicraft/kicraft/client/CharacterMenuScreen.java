@@ -52,10 +52,33 @@ public class CharacterMenuScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, "§bTECHNIQUES", techX + (techBoxWidth / 2), boxesStartY + 12, 0xFFFFFF);
 
         int techY = boxesStartY + 40;
-        String[] techs = {"§f- Flight", "§f- Kaioken", "§f- Ki Sense", "§f- Meditation"};
-        for(String t : techs) {
-            guiGraphics.drawString(this.font, t, techX + 10, techY, 0xFFFFFF);
-            techY += 15;
+        if (Minecraft.getInstance().player != null) {
+            Minecraft.getInstance().player.getCapability(PlayerDataProvider.PLAYER_DATA).ifPresent(data -> {
+                int ty = techY;
+                if (data.hasFlight()) {
+                    guiGraphics.drawString(this.font, "§f- Flight", techX + 10, ty, 0xFFFFFF);
+                    ty += 15;
+                }
+                if (data.hasKiSense()) {
+                    guiGraphics.drawString(this.font, "§f- Ki Sense", techX + 10, ty, 0xFFFFFF);
+                    ty += 15;
+                }
+                if (data.hasInstantTransmission()) {
+                    guiGraphics.drawString(this.font, "§f- Instant Trans.", techX + 10, ty, 0xFFFFFF);
+                    ty += 15;
+                }
+                
+                // PRZYWRÓCONO: Stałe techniki z kopii zapasowej
+                guiGraphics.drawString(this.font, "§f- Kaioken", techX + 10, ty, 0xFFFFFF);
+                ty += 15;
+                guiGraphics.drawString(this.font, "§f- Meditation", techX + 10, ty, 0xFFFFFF);
+                ty += 15;
+                
+                // Jeśli brak technik, wyświetl informację
+                if (!data.hasFlight() && !data.hasKiSense() && !data.hasInstantTransmission()) {
+                    guiGraphics.drawString(this.font, "§8No techniques", techX + 10, ty, 0xFFFFFF);
+                }
+            });
         }
 
         // ==========================================

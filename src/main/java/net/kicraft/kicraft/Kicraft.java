@@ -91,13 +91,5 @@ public class Kicraft {
         public static void onClientSetup(FMLClientSetupEvent event) {
             LOGGER.info("Client setup initialized.");
         }
-
-        @SuppressWarnings({"rawtypes", "unchecked"})
-        @SubscribeEvent
-        public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
-            // Ponieważ kompilator Javy nie wie o Mixinach, musimy "wymusić" na nim
-            // akceptację tego renderera, używając surowego typu (raw type).
-            event.registerEntityRenderer(EntityType.PLAYER, context -> new KicraftPlayerRenderer(context));
-        }
     }
 }

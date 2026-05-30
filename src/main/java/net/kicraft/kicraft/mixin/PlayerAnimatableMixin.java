@@ -45,7 +45,7 @@ public abstract class PlayerAnimatableMixin extends LivingEntity implements GeoE
             return this.getCapability(PlayerDataProvider.PLAYER_DATA).map(data -> {
                 String race = data.getRace();
                 if (race.equalsIgnoreCase("Saiyan") || race.equalsIgnoreCase("Half-Saiyan")) {
-                    // Puszcza Twoją animację falowania zapisaną w JSON
+                    // Puszcza animację ogona z pliku animacji
                     return event.setAndContinue(RawAnimation.begin().thenLoop("animation.saiyan_tail.idle"));
                 }
                 return PlayState.STOP;

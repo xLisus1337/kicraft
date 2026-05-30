@@ -54,6 +54,12 @@ public class CharacterCreationScreen extends Screen {
 
                 this.addRenderableWidget(Button.builder(Component.literal(r), (b) -> {
                     selectedRace = r;
+                    // Aktualizacja rasy w capability po stronie klienta (tylko dla podglądu!)
+                    if (this.minecraft != null && this.minecraft.player != null) {
+                        this.minecraft.player.getCapability(net.kicraft.kicraft.capability.PlayerDataProvider.PLAYER_DATA).ifPresent(d -> {
+                            d.setRace(r);
+                        });
+                    }
                 }).bounds(x + 40 + (col * 140), y + 60 + (row * 30), 120, 20).build());
             }
         }
