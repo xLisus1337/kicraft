@@ -5,9 +5,12 @@ license="MIT"
 [[mods]]
 modId="kicraft"
 version="1.0.0"
-displayName="Kicraft"
+displayName="Ki Craft"
 authors="Liksus"
-description="Piccolo is here"
+description="Dragon Ball-inspired Ki progression, races, combat and transformations."
+
+[[mixins]]
+config="kicraft.mixins.json"
 
 [[dependencies.kicraft]]
 modId="forge"
@@ -21,4 +24,11 @@ modId="minecraft"
 mandatory=true
 versionRange="[1.20.1,1.21)"
 ordering="NONE"
+side="BOTH"
+
+[[dependencies.kicraft]]
+modId="terrablender"
+mandatory=true
+versionRange="[3.0.1,)"
+ordering="BEFORE"
 side="BOTH"

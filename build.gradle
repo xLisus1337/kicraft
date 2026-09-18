@@ -1,20 +1,9 @@
-buildscript {
-    repositories {
-        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
-    }
-}
-
 plugins {
     id 'eclipse'
     id 'idea'
     id 'net.minecraftforge.gradle' version '6.0.24' // Sztywna, stabilna wersja
+    id 'org.spongepowered.mixin' version '0.7.+'
 }
-
-apply plugin: 'org.spongepowered.mixin'
 
 group = 'com.liksus.kicraft'
 version = '1.0.0'
@@ -64,30 +53,26 @@ minecraft {
     }
 }
 
-mixin {
-    add sourceSets.main, "${mod_id}.refmap.json"
-    config "${mod_id}.mixins.json"
-}
-
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
     mavenCentral()
-    maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
-
     flatDir {
-        dir 'libs'
+        dirs 'libs'
     }
 }
 
 dependencies {
     minecraft "net.minecraftforge:forge:1.20.1-47.2.0"
-    implementation fg.deobf("software.bernie.geckolib:geckolib-forge-1.20.1:4.4.4")
+    implementation fg.deobf("local.mods:worldedit-mod:7.2.15")
+    runtimeOnly fg.deobf("local.mods:embeddium:0.3.31")
+    implementation fg.deobf("local.mods:TerraBlender-forge:1.20.1-3.0.1.10")
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
 
-    // Biblioteki z Twojego folderu /libs/
-    implementation fg.deobf(group: 'local', name: 'fancymenu', version: '1.0')
-    implementation fg.deobf(group: 'local', name: 'konkrete', version: '1.0')
-    implementation fg.deobf(group: 'local', name: 'melody', version: '1.0')
+mixin {
+    add sourceSets.main, 'kicraft.refmap.json'
+    config 'kicraft.mixins.json'
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -96,7 +81,8 @@ tasks.named('processResources', ProcessResources).configure {
 
 tasks.named('jar', Jar).configure {
     manifest {
-        attributes(["Specification-Title"     : mod_id,
+        attributes(["MixinConfigs"            : "kicraft.mixins.json",
+                    "Specification-Title"     : mod_id,
                     "Specification-Vendor"    : mod_authors,
                     "Specification-Version"   : "1",
                     "Implementation-Title"    : project.name,
@@ -107,6 +93,15 @@ tasks.named('jar', Jar).configure {
     finalizedBy 'reobfJar'
 }
 
+tasks.withType(JavaExec).configureEach {
+    doFirst {
+        if (workingDir != null && !workingDir.exists()) {
+            workingDir.mkdirs()
+        }
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.incremental = false
 }

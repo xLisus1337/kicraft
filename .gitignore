@@ -4,3 +4,17 @@
 /build/classes/java/main/
 /run/
 .aider*
+/.codex-build/
+/.eclipse/
+/.tmp.drivedownload/
+/.tmp.driveupload/
+/libs/
+/run-data/
+/src/generated/
+/src/test/
+*.launch
+output.txt
+stdout.txt
+stderr.txt
+run.bat.txt
+Test.txt.txt

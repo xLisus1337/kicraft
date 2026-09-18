@@ -1,0 +1,19 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:nether_star"
+    },
+    "title": "God Ki",
+    "description": "Your body has learned to produce divine energy.",
+    "background": "minecraft:textures/gui/advancements/backgrounds/end.png",
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "produce_god_ki": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

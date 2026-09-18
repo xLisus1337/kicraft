@@ -1,18 +1,19 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.8",
   "package": "net.kicraft.kicraft.mixin",
+  "refmap": "kicraft.refmap.json",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "PlayerAnimatableMixin",
-    "RangedAttributeMixin"
+    "PaozuNoiseChunkGeneratorMixin",
+    "WorldEditImageHeightmapBrushMixin"
   ],
   "client": [
     "CameraMixin",
-    "EntityRenderDispatcherMixin",
-    "GuiMixin",
-    "ItemInHandRendererMixin",
-    "MouseHandlerMixin"
+    "KiSenseMinecraftMixin",
+    "KiSenseEntityMixin",
+    "MouseHandlerMixin",
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
