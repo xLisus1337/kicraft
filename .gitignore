@@ -6,10 +6,12 @@
 .aider*
 /.codex-build/
 /.eclipse/
+/.idea/
 /.tmp.drivedownload/
 /.tmp.driveupload/
 /libs/
 /run-data/
+/logs/
 /src/generated/
 /src/test/
 *.launch

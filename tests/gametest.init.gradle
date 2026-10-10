@@ -1,0 +1,12 @@
+allprojects {
+    layout.buildDirectory = file('.codex-build/melee-gametest-build')
+    afterEvaluate {
+        sourceSets.main.java.srcDir('tests/gametest/java')
+        sourceSets.main.resources.srcDir('tests/gametest/resources')
+        minecraft.runs.gameTestServer {
+            workingDirectory project.file('.codex-build/.codex-build/melee-gametest-run')
+            property 'forge.enabledGameTestNamespaces', 'kicraft'
+            property 'forge.logging.console.level', 'info'
+        }
+    }
+}

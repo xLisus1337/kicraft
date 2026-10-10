@@ -21,8 +21,7 @@ import org.lwjgl.glfw.GLFW;
 
 @Mod.EventBusSubscriber(modid = Kicraft.MODID, value = Dist.CLIENT)
 public final class MeleeInput {
-    // Temporarily disabled while WorldEdit is used to build the Paozu terrain.
-    // Keeping the combat implementation in place makes restoring it a one-line change.
+    // The custom mouse-combat input path remains disabled independently of world setup.
     private static final boolean CUSTOM_MOUSE_PUNCHES_ENABLED = false;
     private static final int PREDICTED_RECOVERY_TICKS = 6;
     private static int recoveryTicks;
