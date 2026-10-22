@@ -50,7 +50,7 @@ public final class RaceIdentityEvents {
             changed |= resetRageAfterCombat(player, data);
 
             if (changed || data.isDirty()) {
-                PlayerDataEvents.sync(player);
+                PlayerDataEvents.requestSync(player);
                 data.clearDirty();
             }
         });

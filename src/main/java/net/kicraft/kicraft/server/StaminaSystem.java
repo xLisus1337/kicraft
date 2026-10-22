@@ -2,6 +2,7 @@ package net.kicraft.kicraft.server;
 
 import net.kicraft.kicraft.core.player.PlayerData;
 import net.kicraft.kicraft.core.player.ResourceCosts;
+import net.kicraft.kicraft.core.player.StaminaRules;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -12,7 +13,6 @@ public final class StaminaSystem {
     private static final String EXHAUSTED_TAG = "kicraftStaminaExhausted";
     private static final String RECOVERY_FLOOR_TAG = "kicraftStaminaRecoveryFloor";
     private static final String LAST_EXERTION_TICK_TAG = "kicraftLastStaminaExertionTick";
-    private static final double RESUME_RATIO = 0.10;
     private static final double LOW_ZONE_RATIO = 0.10;
     private static final double NORMAL_RECOVERY_SECONDS = 4.5;
     private static final double EMPTY_RECOVERY_SECONDS = 10.0;
@@ -37,7 +37,7 @@ public final class StaminaSystem {
             return false;
         }
         CompoundTag tag = player.getPersistentData();
-        if (data.stamina() <= 0.001) {
+        if (StaminaRules.isEmpty(data.stamina())) {
             tag.putBoolean(EXHAUSTED_TAG, true);
             return true;
         }
@@ -62,7 +62,7 @@ public final class StaminaSystem {
 
         data.setStamina(remaining);
         rememberRecoveryFloor(player, data);
-        if (remaining <= 0.001) {
+        if (StaminaRules.isEmpty(remaining)) {
             player.getPersistentData().putBoolean(EXHAUSTED_TAG, true);
             if (player.isSprinting()) {
                 player.setSprinting(false);
@@ -83,7 +83,7 @@ public final class StaminaSystem {
         }
 
         CompoundTag tag = player.getPersistentData();
-        if (tag.getBoolean(EXHAUSTED_TAG) && data.stamina() >= data.maxStamina() * RESUME_RATIO) {
+        if (tag.getBoolean(EXHAUSTED_TAG) && StaminaRules.canResumeSprint(data.stamina(), data.maxStamina())) {
             tag.remove(EXHAUSTED_TAG);
             return;
         }

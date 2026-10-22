@@ -18,10 +18,8 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
-import net.minecraftforge.event.entity.living.LivingHealEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -34,7 +32,6 @@ public final class ResourceTickEvents {
     private static final UUID EXHAUSTED_ATTACK_SPEED_MODIFIER_ID = UUID.fromString("f347b78f-b0c1-4be3-b1c4-02a2549ca28f");
     private static final int OOZARU_GAZE_REQUIRED_TICKS = 60;
     private static final int TRANSFORMATION_DESTABILIZE_LIMIT_TICKS = 50;
-    private static final double VANILLA_ENTITY_REACH = 3.0;
     private static final UUID TRANSFORMATION_SPEED_MODIFIER_ID = UUID.fromString("f106a651-8d2e-4d45-89e6-8a00513d5c67");
 
     private ResourceTickEvents() {
@@ -42,13 +39,6 @@ public final class ResourceTickEvents {
 
     public static void clearTransformationInstability(ServerPlayer player) {
         player.getPersistentData().remove(TRANSFORMATION_DESTABILIZE_TICKS_TAG);
-    }
-
-    @SubscribeEvent
-    public static void disableVanillaPlayerHealing(LivingHealEvent event) {
-        if (event.getEntity() instanceof ServerPlayer) {
-            event.setCanceled(true);
-        }
     }
 
     @SubscribeEvent
@@ -140,9 +130,8 @@ public final class ResourceTickEvents {
             syncKiHealthFromVanilla(player, data);
             syncVanillaAttributes(player, data);
             syncTransformationSpeed(player, data);
-            syncEntityReachAttribute(player);
             if (changed || data.isDirty() || player.tickCount % 100 == 0) {
-                PlayerDataEvents.sync(player);
+                PlayerDataEvents.requestSync(player);
                 data.clearDirty();
             }
         });
@@ -280,7 +269,7 @@ public final class ResourceTickEvents {
                 level.sendParticles(ParticleTypes.HAPPY_VILLAGER, target.getX(), target.getY() + target.getBbHeight() * 0.65, target.getZ(), 2, 0.22, 0.3, 0.22, 0.01);
             }
 
-            PlayerDataEvents.sync(target);
+            PlayerDataEvents.requestSync(target);
             targetData.clearDirty();
             changed[0] = true;
         });
@@ -616,24 +605,6 @@ public final class ResourceTickEvents {
                     -0.75,
                     AttributeModifier.Operation.MULTIPLY_TOTAL
             ));
-        }
-    }
-
-    private static void syncEntityReachAttribute(ServerPlayer player) {
-        AttributeInstance entityReach = player.getAttribute(ForgeMod.ENTITY_REACH.get());
-        if (entityReach == null) {
-            return;
-        }
-
-        // Every race currently uses the vanilla survival reach. Future racial reach
-        // will be introduced with its matching model and attack implementation.
-        resetBaseEntityReach(entityReach);
-        entityReach.removeModifiers();
-    }
-
-    private static void resetBaseEntityReach(AttributeInstance entityReach) {
-        if (Math.abs(entityReach.getBaseValue() - VANILLA_ENTITY_REACH) > 0.0001) {
-            entityReach.setBaseValue(VANILLA_ENTITY_REACH);
         }
     }
 

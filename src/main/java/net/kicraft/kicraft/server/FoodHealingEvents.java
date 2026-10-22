@@ -19,7 +19,7 @@ public final class FoodHealingEvents {
 
     @SubscribeEvent
     public static void healFromFood(LivingEntityUseItemEvent.Finish event) {
-        if (!(event.getEntity() instanceof ServerPlayer player)) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || !player.isAlive()) {
             return;
         }
 
@@ -31,13 +31,11 @@ public final class FoodHealingEvents {
 
         player.getCapability(PlayerDataCapability.PLAYER_DATA).ifPresent(data -> {
             double healRatio = healRatio(food);
-            double newDataHp = Math.min(data.maxHp(), data.hp() + data.maxHp() * healRatio);
-            data.setHp(newDataHp);
-
-            float vanillaTarget = (float) (player.getMaxHealth() * (data.hp() / Math.max(1.0, data.maxHp())));
-            if (vanillaTarget > player.getHealth()) {
-                player.setHealth(Math.min(player.getMaxHealth(), vanillaTarget));
-            }
+            // Health may have changed since the last resource tick (damage or a potion).
+            // Use the entity's current health so eating cannot restore a stale snapshot.
+            float maxHealth = player.getMaxHealth();
+            player.setHealth((float) Math.min(maxHealth, player.getHealth() + maxHealth * healRatio));
+            data.setHp(data.maxHp() * player.getHealth() / Math.max(1.0F, maxHealth));
             player.getFoodData().setFoodLevel(20);
             player.getFoodData().setSaturation(0.0F);
 

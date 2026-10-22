@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.kicraft.kicraft.Kicraft;
 import net.kicraft.kicraft.core.player.FlightMovement;
 import net.kicraft.kicraft.core.player.KiTransformation;
+import net.kicraft.kicraft.core.player.StaminaRules;
 import net.kicraft.kicraft.network.BlockPacket;
 import net.kicraft.kicraft.network.DashPacket;
 import net.kicraft.kicraft.network.FlightControlPacket;
@@ -28,8 +29,6 @@ import net.minecraftforge.fml.common.Mod;
 
 @Mod.EventBusSubscriber(modid = Kicraft.MODID, value = Dist.CLIENT)
 public final class ClientInputEvents {
-    private static final double STAMINA_SPRINT_EMPTY_RATIO = 0.0;
-    private static final double STAMINA_SPRINT_RESUME_RATIO = 0.05;
     private static final int DOUBLE_JUMP_WINDOW_TICKS = 7;
     private static final int TRANSFORM_HOLD_TICKS = 60;
     private static final int TRANSFORM_OFF_HOLD_TICKS = 20;
@@ -115,10 +114,10 @@ public final class ClientInputEvents {
         } else {
             double stamina = ClientKiData.data().stamina();
             double maxStamina = ClientKiData.data().maxStamina();
-            if (stamina <= maxStamina * STAMINA_SPRINT_EMPTY_RATIO) {
+            if (StaminaRules.isEmpty(stamina)) {
                 staminaExhausted = true;
                 waitingForSprintRelease = true;
-            } else if (stamina >= maxStamina * STAMINA_SPRINT_RESUME_RATIO && !isSprintPhysicallyHeld(minecraft)) {
+            } else if (StaminaRules.canResumeSprint(stamina, maxStamina) && !isSprintPhysicallyHeld(minecraft)) {
                 staminaExhausted = false;
                 waitingForSprintRelease = false;
             }

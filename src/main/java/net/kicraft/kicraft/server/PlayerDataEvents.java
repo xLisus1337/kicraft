@@ -14,6 +14,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -23,12 +24,16 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = Kicraft.MODID)
 public final class PlayerDataEvents {
     private static final Map<UUID, net.minecraft.nbt.CompoundTag> DEATH_SNAPSHOTS = new HashMap<>();
+    private static final Map<UUID, ServerPlayer> PENDING_SYNCS = new HashMap<>();
+    private static final Map<UUID, Long> LAST_SYNC_TICKS = new HashMap<>();
+    private static final int RESOURCE_SYNC_INTERVAL_TICKS = 4;
     private static final String RESPAWN_PROTECTION_UNTIL_TAG = "kicraftRespawnProtectionUntil";
     private static final int RESPAWN_PROTECTION_TICKS = 100;
 
@@ -81,6 +86,8 @@ public final class PlayerDataEvents {
             FlightManeuverSystem.clear(player);
             DiscordBugReportService.clear(player);
             DEATH_SNAPSHOTS.remove(player.getUUID());
+            PENDING_SYNCS.remove(player.getUUID());
+            LAST_SYNC_TICKS.remove(player.getUUID());
             if (!player.isCreative() && !player.isSpectator()) {
                 player.getAbilities().mayfly = false;
                 player.getAbilities().flying = false;
@@ -172,9 +179,36 @@ public final class PlayerDataEvents {
     @SubscribeEvent
     public static void stopped(ServerStoppedEvent event) {
         DEATH_SNAPSHOTS.clear();
+        PENDING_SYNCS.clear();
+        LAST_SYNC_TICKS.clear();
         FlightManeuverSystem.clearAll();
     }
 
+    /** Coalesce continuously changing resources; read their latest values only when sending. */
+    public static void requestSync(ServerPlayer player) {
+        PENDING_SYNCS.put(player.getUUID(), player);
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void flushResourceSyncs(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || PENDING_SYNCS.isEmpty()) return;
+        long now = event.getServer().overworld().getGameTime();
+        // sync() removes the pending entry, so iterate over a snapshot.
+        for (ServerPlayer player : new ArrayList<>(PENDING_SYNCS.values())) {
+            UUID id = player.getUUID();
+            if (player.isRemoved() || player.server != event.getServer()) {
+                PENDING_SYNCS.remove(id);
+                LAST_SYNC_TICKS.remove(id);
+                continue;
+            }
+            Long last = LAST_SYNC_TICKS.get(id);
+            if (last == null || now < last || now - last >= RESOURCE_SYNC_INTERVAL_TICKS) {
+                sync(player);
+            }
+        }
+    }
+
+    /** Immediate sync for actions, login, respawn and other discrete state changes. */
     public static void sync(ServerPlayer player) {
         player.getCapability(PlayerDataCapability.PLAYER_DATA)
                 .ifPresent(data -> {
@@ -184,6 +218,9 @@ public final class PlayerDataEvents {
                     if (!levelUps.isEmpty()) {
                         KicraftNetwork.sendToPlayer(player, new StatLevelUpPacket(levelUps));
                     }
+                    PENDING_SYNCS.remove(player.getUUID());
+                    LAST_SYNC_TICKS.put(player.getUUID(), player.server.overworld().getGameTime());
+                    data.clearDirty();
                 });
     }
 

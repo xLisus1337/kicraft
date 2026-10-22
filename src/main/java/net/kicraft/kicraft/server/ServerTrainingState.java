@@ -21,6 +21,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -33,6 +34,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.lang.ref.WeakReference;
 
 /** Server-owned, low-frequency training logic. No client input is trusted here. */
 @Mod.EventBusSubscriber(modid = Kicraft.MODID)
@@ -44,7 +46,10 @@ public final class ServerTrainingState {
     private static final float DUMMY_VISIBLE_HIT_DAMAGE = 0.01F;
     private static final double TRAINING_XP_VARIANCE = 0.20;
     private static final Map<UUID, TrainingSession> SESSIONS = new HashMap<>();
-    private static final Map<UUID, UUID> DUMMIES = new HashMap<>();
+    // Includes loaded entities in inactive chunks, which ServerLevel.getEntity cannot find.
+    // Weak references do not keep unloaded chunks/entities alive. Tracking-end events alone
+    // cannot clear this cache: an entity may remain loaded in a temporarily inactive chunk.
+    private static final Map<UUID, WeakReference<Entity>> LOADED_DUMMIES = new HashMap<>();
 
     private ServerTrainingState() {
     }
@@ -76,16 +81,6 @@ public final class ServerTrainingState {
             return;
         }
 
-        UUID existingId = DUMMIES.get(player.getUUID());
-        if (existingId != null) {
-            Entity existing = level.getEntity(existingId);
-            if (isTrainingDummy(existing)) {
-                moveDummyInFrontOfPlayer(existing, player);
-                return;
-            }
-            DUMMIES.remove(player.getUUID());
-        }
-
         TrainingDummyEntity dummy = KicraftEntities.TRAINING_DUMMY.get().create(level);
         if (dummy == null) {
             return;
@@ -96,8 +91,46 @@ public final class ServerTrainingState {
         dummy.setCustomNameVisible(true);
         dummy.getPersistentData().putBoolean(DUMMY_TAG, true);
         dummy.getPersistentData().putUUID(DUMMY_OWNER_TAG, player.getUUID());
-        level.addFreshEntity(dummy);
-        DUMMIES.put(player.getUUID(), dummy.getUUID());
+        TrainingDummyRegistry registry = TrainingDummyRegistry.get(player.server);
+        UUID previousId = registry.current(player.getUUID());
+        WeakReference<Entity> previousReference = LOADED_DUMMIES.get(player.getUUID());
+        Entity previousLoaded = previousReference == null ? null : previousReference.get();
+        registry.replace(player.getUUID(), dummy.getUUID());
+        if (!level.addFreshEntity(dummy)) {
+            // A cancelled spawn must not invalidate the player's existing dummy.
+            registry.replace(player.getUUID(), previousId);
+            if (previousLoaded != null && !previousLoaded.isRemoved()) {
+                LOADED_DUMMIES.put(player.getUUID(), new WeakReference<>(previousLoaded));
+            } else {
+                LOADED_DUMMIES.remove(player.getUUID());
+            }
+            return;
+        }
+        if (previousLoaded != null && previousLoaded != dummy) previousLoaded.discard();
+        if (previousId != null) {
+            for (ServerLevel world : player.server.getAllLevels()) {
+                Entity previous = world.getEntity(previousId);
+                if (isTrainingDummy(previous)
+                        && previous.getPersistentData().hasUUID(DUMMY_OWNER_TAG)
+                        && player.getUUID().equals(previous.getPersistentData().getUUID(DUMMY_OWNER_TAG))) {
+                    previous.discard();
+                }
+            }
+        }
+        // An unloaded predecessor is invalidated in saved data and rejected before it rejoins.
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void rejectReplacedDummy(EntityJoinLevelEvent event) {
+        Entity dummy = event.getEntity();
+        if (!(event.getLevel() instanceof ServerLevel level) || !isTrainingDummy(dummy)
+                || !dummy.getPersistentData().hasUUID(DUMMY_OWNER_TAG)) return;
+        UUID owner = dummy.getPersistentData().getUUID(DUMMY_OWNER_TAG);
+        if (!TrainingDummyRegistry.get(level.getServer()).acceptOrAdopt(owner, dummy.getUUID())) {
+            event.setCanceled(true);
+        } else {
+            LOADED_DUMMIES.put(owner, new WeakReference<>(dummy));
+        }
     }
 
     public static boolean isTrainingDummy(Entity entity) {
@@ -156,7 +189,7 @@ public final class ServerTrainingState {
         }
         if (dummy.getPersistentData().hasUUID(DUMMY_OWNER_TAG)
                 && dummy.getPersistentData().getUUID(DUMMY_OWNER_TAG).equals(player.getUUID())) {
-            DUMMIES.remove(player.getUUID());
+            TrainingDummyRegistry.get(player.server).remove(player.getUUID(), dummy.getUUID());
             dummy.discard();
             event.setCanceled(true);
         }
@@ -172,7 +205,7 @@ public final class ServerTrainingState {
     @SubscribeEvent
     public static void stopped(ServerStoppedEvent event) {
         SESSIONS.clear();
-        DUMMIES.clear();
+        LOADED_DUMMIES.clear();
     }
 
     private static boolean canTrain(ServerPlayer player) {

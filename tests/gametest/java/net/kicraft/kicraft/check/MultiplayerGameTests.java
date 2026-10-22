@@ -11,22 +11,34 @@ import net.kicraft.kicraft.core.player.KiStat;
 import net.kicraft.kicraft.core.player.KiTechnique;
 import net.kicraft.kicraft.core.player.PlayerData;
 import net.kicraft.kicraft.core.player.ResourceCosts;
+import net.kicraft.kicraft.core.player.StaminaRules;
 import net.kicraft.kicraft.core.training.TrainingActivity;
 import net.kicraft.kicraft.network.KiSenseHighlightPacket;
 import net.kicraft.kicraft.network.KiSensePacket;
 import net.kicraft.kicraft.network.MeleeInputPacket;
+import net.kicraft.kicraft.network.PlayerDataSyncPacket;
+import net.kicraft.kicraft.network.StatLevelUpPacket;
 import net.kicraft.kicraft.server.*;
 import net.kicraft.kicraft.server.capability.PlayerDataCapability;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.Connection;
+import net.minecraft.network.PacketSendListener;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -36,20 +48,285 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraftforge.common.util.FakePlayer;
+import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 
 @GameTestHolder("kicraft")
 @PrefixGameTestTemplate(false)
 public final class MultiplayerGameTests {
     private static final String ARENA = "melee_arena";
+
+    @GameTest(template = ARENA)
+    public static void resourceTicksPreserveExternalReachAndMeleeUsesIt(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2), b = fighter(h, 2, 6);
+        var reach = a.getAttribute(ForgeMod.ENTITY_REACH.get());
+        h.assertTrue(reach != null && Math.abs(reach.getBaseValue() - 3.0) < 0.001,
+                "Unmodified players must retain Forge's normal base reach");
+        UUID itemId = UUID.randomUUID(), effectId = UUID.randomUUID();
+        reach.setBaseValue(4.0);
+        reach.addPermanentModifier(new AttributeModifier(itemId, "External item reach", 1.0,
+                AttributeModifier.Operation.ADDITION));
+        reach.addTransientModifier(new AttributeModifier(effectId, "External effect reach", 0.20,
+                AttributeModifier.Operation.MULTIPLY_TOTAL));
+        for (int i = 0; i < 3; i++) {
+            ResourceTickEvents.playerTick(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, a));
+        }
+        h.assertTrue(reach.getBaseValue() == 4.0 && reach.getModifier(itemId) != null
+                        && reach.getModifier(effectId) != null && Math.abs(reach.getValue() - 6.0) < 0.001,
+                "Ki Craft must not overwrite external base reach or permanent/transient modifiers");
+        data(a).setStamina(60);
+        MeleeCombat.input(a, MeleeInputPacket.AttackSide.RIGHT);
+        h.assertTrue(b.getHealth() < 20.0F, "Server melee targeting must honor the preserved reach");
+        finish(h, a, b);
+    }
+
+    @GameTest(template = ARENA, timeoutTicks = 40)
+    public static void periodicSyncCoalescesLatestResourcesAndKeepsLevelUps(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        SyncRecorder recorder = new SyncRecorder(a);
+        PlayerDataEvents.sync(a);
+        for (int i = 0; i < 12; i++) {
+            data(a).setKi(2.0 + i * 0.1);
+            ResourceTickEvents.playerTick(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, a));
+            PlayerDataEvents.requestSync(a);
+        }
+        data(a).train(KiStat.STRENGTH, data(a).statXpRequired(KiStat.STRENGTH));
+        PlayerDataEvents.requestSync(a);
+        h.assertTrue(recorder.states.size() == 1, "Periodic requests must not send immediately");
+        h.runAfterDelay(2, () -> {
+            h.assertTrue(recorder.states.size() == 1, "Full resource packets must respect the four-tick interval");
+            data(a).setKi(5.0);
+            PlayerDataEvents.requestSync(a);
+            data(a).clearDirty();
+        });
+        h.runAfterDelay(6, () -> {
+            h.assertTrue(recorder.states.size() == 2 && recorder.last().data().getDouble("Ki") == 5.0,
+                    "Many requests must produce one packet with the latest values, even after dirty is cleared");
+            h.assertTrue(recorder.levelUps.size() == 1
+                            && recorder.levelUps.get(0).levels().containsKey(KiStat.STRENGTH),
+                    "Deferred sync must deliver the earned level notification exactly once");
+            finish(h, a);
+        });
+    }
+
+    @GameTest(template = ARENA, timeoutTicks = 40)
+    public static void continuousSyncIsBoundedAndFlushesFinalChange(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        SyncRecorder recorder = new SyncRecorder(a);
+        PlayerDataEvents.sync(a);
+        for (int tick = 1; tick <= 20; tick++) {
+            final int step = tick;
+            h.runAfterDelay(tick, () -> {
+                data(a).setStamina(80.0 - step);
+                for (int request = 0; request < 3; request++) PlayerDataEvents.requestSync(a);
+                data(a).clearDirty();
+            });
+        }
+        h.runAfterDelay(25, () -> {
+            h.assertTrue(recorder.states.size() <= 7 && recorder.states.size() >= 5,
+                    "Continuous changes must be sampled about five times per second, not for every request");
+            for (int i = 1; i < recorder.ticks.size(); i++) {
+                h.assertTrue(recorder.ticks.get(i) - recorder.ticks.get(i - 1) >= 4,
+                        "Periodic full-state packets must be at least four ticks apart");
+            }
+            h.assertTrue(recorder.last().data().getDouble("Stamina") == 60.0,
+                    "The final queued update must arrive even after resource changes stop");
+            finish(h, a);
+        });
+    }
+
+    @GameTest(template = ARENA, timeoutTicks = 40)
+    public static void respawnSyncBypassesQueueAndLogoutCancelsPendingSync(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2), b = fighter(h, 4, 2);
+        SyncRecorder first = new SyncRecorder(a), second = new SyncRecorder(b);
+        PlayerDataEvents.sync(a); PlayerDataEvents.sync(b);
+        data(a).setKi(1.0); data(b).setKi(1.0);
+        PlayerDataEvents.requestSync(a); PlayerDataEvents.requestSync(b);
+        PlayerDataEvents.respawn(new PlayerEvent.PlayerRespawnEvent(a, false));
+        h.assertTrue(first.states.size() == 2 && first.last().data().getDouble("Ki") == data(a).maxKi(),
+                "Respawn must send restored resources immediately despite the throttle");
+        PlayerDataEvents.logout(new PlayerEvent.PlayerLoggedOutEvent(b));
+        h.runAfterDelay(6, () -> {
+            h.assertTrue(first.states.size() == 2, "An immediate sync must replace its obsolete queued update");
+            h.assertTrue(second.states.size() == 1, "Logout must cancel queued packets for the old player");
+            finish(h, a, b);
+        });
+    }
+
+    @GameTest(template = ARENA)
+    public static void placingDummyReplacesOnlyItsOwnersPreviousDummy(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2), b = fighter(h, 4, 2);
+        ServerTrainingState.spawnDummy(a);
+        TrainingDummyEntity first = ownedDummy(a);
+        ServerTrainingState.spawnDummy(b);
+        TrainingDummyEntity other = ownedDummy(b);
+        a.setYRot(90.0F);
+        ServerTrainingState.spawnDummy(a);
+        TrainingDummyEntity replacement = ownedDummy(a);
+        h.assertTrue(first.isRemoved() && !first.getUUID().equals(replacement.getUUID()),
+                "Placing another dummy must delete the previous entity and create a new one");
+        h.assertTrue(!other.isRemoved() && ownedDummy(b) == other,
+                "Replacing a dummy must not delete another player's dummy");
+        Vec3 expected = a.position().add(a.getLookAngle().multiply(1, 0, 1).normalize().scale(2.2));
+        h.assertTrue(replacement.position().distanceToSqr(expected) < 0.001,
+                "The replacement must appear in front of the owner's current position and aim");
+        replacement.discard(); other.discard();
+        finish(h, a, b);
+    }
+
+    @GameTest(template = ARENA)
+    public static void replacingDummyRemovesPredecessorInAnotherDimension(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        ServerLevel otherWorld = h.getLevel().getServer().getLevel(Level.END);
+        h.assertTrue(otherWorld != null, "The fixture needs a second dimension");
+        // Add directly: the player does not need to enter Ki Craft's disabled dimensions.
+        TrainingDummyEntity previous = legacyDummy(otherWorld, a.getUUID(), a.position());
+        h.assertTrue(otherWorld.addFreshEntity(previous), "The legacy dummy should be adopted");
+        ServerTrainingState.spawnDummy(a);
+        TrainingDummyEntity replacement = ownedDummy(a);
+        h.assertTrue(previous.isRemoved() && replacement.level() == a.level(),
+                "The per-player limit must cover all dimensions, not just the current one");
+        replacement.discard();
+        finish(h, a);
+    }
+
+    @GameTest(template = ARENA)
+    public static void replacedUnloadedDummyCannotReturnFromSavedEntity(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        ServerTrainingState.spawnDummy(a);
+        TrainingDummyEntity first = ownedDummy(a);
+        CompoundTag oldEntity = new CompoundTag();
+        first.save(oldEntity);
+        first.discard(); // Simulate its absence from loaded entities while retaining its disk snapshot.
+        ServerTrainingState.spawnDummy(a);
+        TrainingDummyEntity replacement = ownedDummy(a);
+        TrainingDummyEntity returning = KicraftEntities.TRAINING_DUMMY.get().create(h.getLevel());
+        returning.load(oldEntity);
+        EntityJoinLevelEvent diskLoad = new EntityJoinLevelEvent(returning, h.getLevel(), true);
+        ServerTrainingState.rejectReplacedDummy(diskLoad);
+        h.assertTrue(diskLoad.isCanceled() && !h.getLevel().addFreshEntity(returning),
+                "An old chunk snapshot must not restore a replaced dummy");
+        TrainingDummyRegistry restored = TrainingDummyRegistry.load(
+                TrainingDummyRegistry.get(a.server).save(new CompoundTag()));
+        h.assertTrue(restored.acceptOrAdopt(a.getUUID(), replacement.getUUID())
+                        && !restored.acceptOrAdopt(a.getUUID(), first.getUUID()),
+                "Saving and reloading the registry must preserve which dummy is current");
+        replacement.discard();
+        finish(h, a);
+    }
+
+    @GameTest(template = ARENA)
+    public static void legacyDuplicatesAndManuallyRemovedDummiesCannotReturn(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        TrainingDummyEntity first = legacyDummy(h.getLevel(), a.getUUID(), a.position().add(0, 0, 2));
+        TrainingDummyEntity duplicate = legacyDummy(h.getLevel(), a.getUUID(), a.position().add(2, 0, 0));
+        h.assertTrue(h.getLevel().addFreshEntity(first) && !h.getLevel().addFreshEntity(duplicate),
+                "Old worlds must adopt one owned dummy and reject their pre-existing duplicates");
+        a.setShiftKeyDown(true);
+        PlayerInteractEvent.EntityInteract interaction = new PlayerInteractEvent.EntityInteract(
+                a, InteractionHand.MAIN_HAND, first);
+        ServerTrainingState.removeOwnedDummy(interaction);
+        h.assertTrue(interaction.isCanceled() && first.isRemoved(),
+                "Sneak interaction must still remove the owned dummy");
+        TrainingDummyRegistry restored = TrainingDummyRegistry.load(
+                TrainingDummyRegistry.get(a.server).save(new CompoundTag()));
+        h.assertTrue(!restored.acceptOrAdopt(a.getUUID(), first.getUUID())
+                        && !restored.acceptOrAdopt(a.getUUID(), duplicate.getUUID()),
+                "Removal must survive a restart without adopting an older unloaded duplicate");
+        a.setShiftKeyDown(false);
+        ServerTrainingState.spawnDummy(a);
+        TrainingDummyEntity replacement = ownedDummy(a);
+        h.assertTrue(!replacement.isRemoved(), "Manual removal must not prevent a later placement");
+        replacement.discard();
+        finish(h, a);
+    }
+
+    @GameTest(template = ARENA)
+    public static void exhaustedSprintResumesAtSharedTenPercentThreshold(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        data(a).setStamina(0.0005);
+        h.assertTrue(StaminaRules.isEmpty(data(a).stamina()) && StaminaSystem.isSprintLocked(a, data(a)),
+                "Client and server must both treat near-zero stamina as exhausted");
+        for (double stamina : new double[] {5.0, 9.999}) {
+            data(a).setStamina(stamina);
+            StaminaSystem.enforceSprintLock(a, data(a));
+            h.assertTrue(!StaminaRules.canResumeSprint(stamina, data(a).maxStamina())
+                            && StaminaSystem.isSprintLocked(a, data(a)),
+                    "Sprint must stay locked below 10%, including the former client threshold of 5%");
+        }
+        data(a).setStamina(10.0);
+        StaminaSystem.enforceSprintLock(a, data(a));
+        h.assertTrue(StaminaRules.canResumeSprint(10.0, data(a).maxStamina())
+                        && !StaminaSystem.isSprintLocked(a, data(a)),
+                "Exactly 10% must release server exhaustion and allow client sprint prediction");
+        finish(h, a);
+    }
+
+    @GameTest(template = ARENA)
+    public static void foodHealsAtFullHungerAndConsumesOneItem(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        a.getFoodData().setFoodLevel(20);
+        a.setHealth(5.0F);
+        // Deliberately leave capability HP full: eating can happen before its next sync.
+        a.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.BREAD));
+        var result = a.getMainHandItem().use(a.level(), a, InteractionHand.MAIN_HAND);
+        h.assertTrue(result.getResult().consumesAction() && a.isUsingItem(),
+                "A wounded survival player must be able to start eating at full hunger");
+        h.assertTrue(a.getHealth() == 5.0F, "Starting to eat must not heal early");
+        a.finishFood();
+        h.assertTrue(a.getMainHandItem().isEmpty(), "Finishing the last bread must consume it");
+        h.assertTrue(Math.abs(a.getHealth() - 9.8F) < 0.01F,
+                "Bread must heal 24% of max HP from current health, not stale capability HP");
+        h.assertTrue(Math.abs(data(a).hp() - data(a).maxHp() * a.getHealth() / a.getMaxHealth()) < 0.01,
+                "Food must synchronize Ki Craft HP with the healed entity");
+        finish(h, a);
+    }
+
+    @GameTest(template = ARENA)
+    public static void healthyPlayersKeepVanillaFoodRestrictions(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        a.getFoodData().setFoodLevel(20);
+        a.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.BREAD));
+        h.assertTrue(!a.getMainHandItem().use(a.level(), a, InteractionHand.MAIN_HAND)
+                        .getResult().consumesAction() && !a.isUsingItem(),
+                "Full health and full hunger must still reject ordinary food");
+        a.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.GOLDEN_APPLE));
+        h.assertTrue(a.getMainHandItem().use(a.level(), a, InteractionHand.MAIN_HAND)
+                        .getResult().consumesAction(), "Always-edible food must remain usable");
+        a.stopUsingItem();
+        a.getFoodData().setFoodLevel(15);
+        h.assertTrue(a.canEat(false), "The vanilla hungry-player path must remain valid");
+        finish(h, a);
+    }
+
+    @GameTest(template = ARENA)
+    public static void potionsHealButHungerRegenerationStaysDisabled(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2);
+        a.setHealth(5.0F);
+        a.getFoodData().setFoodLevel(20);
+        a.getFoodData().setSaturation(5.0F);
+        for (int i = 0; i < 10; i++) a.getFoodData().tick(a);
+        h.assertTrue(a.getHealth() == 5.0F, "Saturation must not passively heal the player");
+        a.getFoodData().setSaturation(0.0F);
+        for (int i = 0; i < 80; i++) a.getFoodData().tick(a);
+        h.assertTrue(a.getHealth() == 5.0F, "Full hunger must not passively heal the player");
+        MobEffects.HEAL.applyInstantenousEffect(null, null, a, 0, 1.0);
+        h.assertTrue(a.getHealth() == 9.0F, "Instant health must no longer be globally cancelled");
+        MobEffects.REGENERATION.applyEffectTick(a, 0);
+        h.assertTrue(a.getHealth() == 10.0F, "Regeneration effects must remain usable");
+        finish(h, a);
+    }
 
     @GameTest(template = ARENA)
     public static void blastCreditsOwnerAndSynchronizesMotion(GameTestHelper h) {
@@ -285,20 +562,20 @@ public final class MultiplayerGameTests {
     @GameTest(template = ARENA)
     public static void cameraDirectedFlightUsesPitchAndLocalStrafe(GameTestHelper h) {
         Vec3 climb = FlightMovement.calculateVelocity(Vec3.ZERO,
-                Vec3.directionFromRotation(-60.0F, 0.0F), 1.0F, 0.0F, false);
+                Vec3.directionFromRotation(-60.0F, 0.0F), 1.0F, 0.0F, 0.0F, false);
         Vec3 dive = FlightMovement.calculateVelocity(Vec3.ZERO,
-                Vec3.directionFromRotation(60.0F, 0.0F), 1.0F, 0.0F, false);
+                Vec3.directionFromRotation(60.0F, 0.0F), 1.0F, 0.0F, 0.0F, false);
         Vec3 left = FlightMovement.calculateVelocity(Vec3.ZERO,
-                Vec3.directionFromRotation(0.0F, 0.0F), 0.0F, 1.0F, false);
+                Vec3.directionFromRotation(0.0F, 0.0F), 0.0F, 1.0F, 0.0F, false);
         Vec3 inverted = FlightMovement.calculateVelocity(Vec3.ZERO,
                 Vec3.directionFromRotation(-180.0F, 0.0F), new Vec3(1.0, 0.0, 0.0),
-                1.0F, 0.0F, false);
+                1.0F, 0.0F, 0.0F, false);
         Vec3 regular = FlightMovement.calculateVelocity(Vec3.ZERO,
                 new Vec3(0.0, 0.0, 1.0), new Vec3(1.0, 0.0, 0.0),
-                1.0F, 0.0F, false);
+                1.0F, 0.0F, 0.0F, false);
         Vec3 boosted = FlightMovement.calculateVelocity(Vec3.ZERO,
                 new Vec3(0.0, 0.0, 1.0), new Vec3(1.0, 0.0, 0.0),
-                1.0F, 0.0F, true);
+                1.0F, 0.0F, 0.0F, true);
         PlayerData costs = new PlayerData();
 
         h.assertTrue(climb.y > 0.15 && climb.horizontalDistanceSqr() > 0.01,
@@ -383,10 +660,55 @@ public final class MultiplayerGameTests {
     private static PlayerData data(Fighter p) {
         return p.getCapability(PlayerDataCapability.PLAYER_DATA).orElseThrow(() -> new AssertionError("Missing player capability"));
     }
+    private static TrainingDummyEntity ownedDummy(Fighter owner) {
+        UUID id = TrainingDummyRegistry.get(owner.server).current(owner.getUUID());
+        if (id != null && owner.serverLevel().getEntity(id) instanceof TrainingDummyEntity dummy) return dummy;
+        throw new AssertionError("Missing current owned dummy");
+    }
+    private static TrainingDummyEntity legacyDummy(ServerLevel level, UUID owner, Vec3 position) {
+        TrainingDummyEntity dummy = KicraftEntities.TRAINING_DUMMY.get().create(level);
+        if (dummy == null) throw new AssertionError("Missing dummy entity type");
+        dummy.setPos(position);
+        dummy.getPersistentData().putBoolean("kicraftTrainingDummy", true);
+        dummy.getPersistentData().putUUID("kicraftTrainingDummyOwner", owner);
+        return dummy;
+    }
     private static void finish(GameTestHelper h, Fighter... players) {
         for (Fighter p : players) { PlayerDataEvents.logout(new PlayerEvent.PlayerLoggedOutEvent(p)); p.discard(); }
         h.succeed();
     }
+    private static final class SyncRecorder extends ServerGamePacketListenerImpl {
+        final List<PlayerDataSyncPacket> states = new ArrayList<>();
+        final List<StatLevelUpPacket> levelUps = new ArrayList<>();
+        final List<Long> ticks = new ArrayList<>();
+        private final Fighter owner;
+
+        SyncRecorder(Fighter player) {
+            super(player.server, new Connection(PacketFlow.SERVERBOUND), player);
+            owner = player;
+        }
+
+        PlayerDataSyncPacket last() { return states.get(states.size() - 1); }
+
+        @Override public void send(Packet<?> packet) { send(packet, null); }
+
+        @Override public void send(Packet<?> packet, PacketSendListener listener) {
+            if (!(packet instanceof ClientboundCustomPayloadPacket payload)
+                    || !payload.getIdentifier().toString().equals("kicraft:main")) return;
+            FriendlyByteBuf buffer = payload.getData();
+            try {
+                // These are the first two registrations in KicraftNetwork (protocol 16).
+                int id = buffer.readVarInt();
+                if (id == 0) {
+                    states.add(new PlayerDataSyncPacket(buffer));
+                    ticks.add(owner.server.overworld().getGameTime());
+                } else if (id == 1) {
+                    levelUps.add(new StatLevelUpPacket(buffer));
+                }
+            } finally { buffer.release(); }
+        }
+    }
+
     private static final class Fighter extends FakePlayer {
         Fighter(ServerLevel level) {
             super(level, new GameProfile(UUID.randomUUID(), "Mp" + UUID.randomUUID().toString().substring(0, 10)));
@@ -397,6 +719,7 @@ public final class MultiplayerGameTests {
             } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
         }
         @Override public boolean isInvulnerableTo(DamageSource source) { return false; }
+        void finishFood() { completeUsingItem(); }
         @Override public boolean canHarmPlayer(Player other) {
             return getTeam() == null || !getTeam().isAlliedTo(other.getTeam()) || getTeam().isAllowFriendlyFire();
         }

@@ -97,7 +97,7 @@ public final class DailyTrainingState {
             rewardCompletedTask(player, data, DailyTrainingTask.RUN, wasComplete);
             finishIfReady(player, data, day);
             if (player.tickCount % RUN_SYNC_INTERVAL_TICKS == 0 || data.hasClaimedDailyTrainingReward()) {
-                PlayerDataEvents.sync(player);
+                PlayerDataEvents.requestSync(player);
                 data.clearDirty();
             }
         });
