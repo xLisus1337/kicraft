@@ -9,7 +9,7 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public final class KicraftNetwork {
-    private static final String PROTOCOL = "16";
+    private static final String PROTOCOL = "18";
     private static int packetId;
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
@@ -153,6 +153,9 @@ public final class KicraftNetwork {
         CHANNEL.messageBuilder(KiSenseHighlightPacket.class, nextId(), NetworkDirection.PLAY_TO_CLIENT)
                 .decoder(KiSenseHighlightPacket::new).encoder(KiSenseHighlightPacket::encode)
                 .consumerMainThread(KiSenseHighlightPacket::handle).add();
+        CHANNEL.messageBuilder(OozaruFocusPacket.class, nextId(), NetworkDirection.PLAY_TO_CLIENT)
+                .decoder(OozaruFocusPacket::new).encoder(OozaruFocusPacket::encode)
+                .consumerMainThread(OozaruFocusPacket::handle).add();
     }
 
     public static void sendToPlayer(ServerPlayer player, Object packet) {

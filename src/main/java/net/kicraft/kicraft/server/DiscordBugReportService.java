@@ -36,10 +36,10 @@ public final class DiscordBugReportService {
             return;
         }
 
-        long gameTime = player.serverLevel().getGameTime();
-        long nextAllowed = NEXT_REPORT_TICK.getOrDefault(player.getUUID(), 0L);
-        if (gameTime < nextAllowed) {
-            long seconds = Math.max(1L, (nextAllowed - gameTime + 19L) / 20L);
+        long gameTime = player.server.overworld().getGameTime();
+        long remaining = remainingCooldownTicks(player.getUUID(), gameTime);
+        if (remaining > 0L) {
+            long seconds = Math.max(1L, (remaining + 19L) / 20L);
             player.sendSystemMessage(Component.translatable("message.kicraft.bug_report.cooldown", seconds));
             return;
         }
@@ -51,15 +51,11 @@ public final class DiscordBugReportService {
             return;
         }
 
-        NEXT_REPORT_TICK.put(player.getUUID(), gameTime + ServerSettings.bugReportCooldownTicks());
-        pruneExpiredReports(gameTime);
-        String content = "**Ki Craft bug report**\\n"
-                + "**Player:** `" + escapeInline(player.getGameProfile().getName()) + "`\\n\\n"
-                + report;
+        recordReport(player.getUUID(), gameTime, ServerSettings.bugReportCooldownTicks());
         HttpRequest request = HttpRequest.newBuilder(webhook)
                 .timeout(Duration.ofSeconds(12))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(toDiscordPayload(content)))
+                .POST(HttpRequest.BodyPublishers.ofString(reportPayload(player.getGameProfile().getName(), report)))
                 .build();
 
         HTTP.sendAsync(request, HttpResponse.BodyHandlers.discarding())
@@ -73,8 +69,25 @@ public final class DiscordBugReportService {
         player.sendSystemMessage(Component.translatable("message.kicraft.bug_report.queued"));
     }
 
-    public static void clear(ServerPlayer player) {
-        NEXT_REPORT_TICK.remove(player.getUUID());
+    // Cooldowns belong to UUIDs, not connections: logging out must not reset them.
+    static long remainingCooldownTicks(UUID playerId, long gameTime) {
+        return Math.max(0L, NEXT_REPORT_TICK.getOrDefault(playerId, 0L) - gameTime);
+    }
+
+    static void recordReport(UUID playerId, long gameTime, int cooldownTicks) {
+        pruneExpiredReports(gameTime);
+        NEXT_REPORT_TICK.put(playerId, gameTime + cooldownTicks);
+    }
+
+    public static void clearAll() {
+        NEXT_REPORT_TICK.clear();
+    }
+
+    static String reportPayload(String playerName, String report) {
+        String content = "**Ki Craft bug report**\n"
+                + "**Player:** `" + escapeInline(playerName) + "`\n\n"
+                + report;
+        return toDiscordPayload(content);
     }
 
     private static void pruneExpiredReports(long gameTime) {

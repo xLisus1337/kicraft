@@ -16,7 +16,7 @@ public final class ClientLockOnData {
     }
 
     public static void set(int id, String name, double power) {
-        if (id < 0) {
+        if (id < 0 || ClientOozaruFocus.isLocked()) {
             clear();
             return;
         }

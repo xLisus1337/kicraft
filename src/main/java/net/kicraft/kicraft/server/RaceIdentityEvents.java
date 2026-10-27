@@ -9,6 +9,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.event.TickEvent;
@@ -58,6 +59,7 @@ public final class RaceIdentityEvents {
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void raceDamageIdentity(LivingDamageEvent event) {
+        if (event.getAmount() <= 0.0F) return;
         if (event.getSource().getEntity() instanceof ServerPlayer attacker) {
             attacker.getCapability(PlayerDataCapability.PLAYER_DATA).ifPresent(data -> {
                 rememberRageCombat(attacker);
@@ -193,14 +195,15 @@ public final class RaceIdentityEvents {
     private static boolean applyDefensiveIdentity(ServerPlayer victim, PlayerData data, LivingDamageEvent event) {
         KiRace race = data.race();
         float damage = event.getAmount();
+        boolean trainsDurability = !event.getSource().is(DamageTypeTags.IS_FALL);
         if (race == KiRace.HALF_SAIYAN && data.maxHp() > 0.0 && data.hp() / data.maxHp() <= 0.45) {
-            data.train(KiStat.DURABILITY, damage * 0.08);
+            if (trainsDurability) data.train(KiStat.DURABILITY, damage * 0.08);
             data.train(KiStat.STAMINA, damage * 0.05);
             return true;
         }
 
         if (race == KiRace.BIO_ANDROID) {
-            data.train(KiStat.DURABILITY, damage * 0.14);
+            if (trainsDurability) data.train(KiStat.DURABILITY, damage * 0.14);
             data.train(KiStat.MAX_KI, damage * 0.035);
             data.train(KiStat.KI_CONTROL, damage * 0.012);
             return true;
@@ -208,7 +211,7 @@ public final class RaceIdentityEvents {
 
         if (race == KiRace.ANDROID) {
             event.setAmount(Math.max(0.1F, damage * 0.92F));
-            data.train(KiStat.DURABILITY, damage * 0.045);
+            if (trainsDurability) data.train(KiStat.DURABILITY, damage * 0.045);
             data.train(KiStat.KI_CONTROL, damage * 0.035);
             healKiHealth(victim, data, damage * 0.06);
             if (victim.tickCount % 6 == 0) {
@@ -218,7 +221,7 @@ public final class RaceIdentityEvents {
         }
 
         if (race == KiRace.MAJIN) {
-            data.train(KiStat.DURABILITY, damage * 0.06);
+            if (trainsDurability) data.train(KiStat.DURABILITY, damage * 0.06);
             return true;
         }
 

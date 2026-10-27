@@ -98,7 +98,7 @@
   "message.kicraft.oozaru_triggered": "The full moon pulls out your primal power.",
   "message.kicraft.ssj4_unlocked": "SSJ4 awakened.",
   "message.kicraft.ssj4_locked": "SSJ4 requires SSJ3 mastery at 80%.",
-  "message.kicraft.oozaru_focus": "Do not look away from the moon.",
+  "message.kicraft.oozaru_focus": "The full moon holds your gaze. Your transformation begins...",
   "message.kicraft.no_higher_transformation": "No higher transformation is ready.",
   "message.kicraft.shoulder_camera.off": "Shoulder Camera: Off",
   "message.kicraft.shoulder_camera.right": "Shoulder Camera: Right",
@@ -283,5 +283,18 @@
   "combat.kicraft.interrupted": "Attack unavailable",
   "screen.kicraft.hotbar.melee_hint": "%s: strike • 4%% powerful-hit chance above 60%% Stamina • %s: block / parry",
   "combat.kicraft.combo": "Combo %s/%s",
-  "combat.kicraft.combo_finisher": "Combo %s/%s — FINISHER!"
+  "combat.kicraft.combo_finisher": "Combo %s/%s — FINISHER!",
+  "screen.kicraft.stats.base_value": "Level with race bonus",
+  "screen.kicraft.stats.effect.durability": "Max HP / damage reduction",
+  "screen.kicraft.stats.effect.ki_control": "Base Ki Blast cost",
+  "screen.kicraft.stats.effect.max_ki": "Maximum Ki",
+  "screen.kicraft.stats.effect.stamina": "Capacity / stamina cost factor",
+  "screen.kicraft.stats.effect.strength": "Melee factor before stamina",
+  "screen.kicraft.stats.form_factor": "Active form parameter",
+  "screen.kicraft.stats.form_hint": "Form affects the result, not the saved level",
+  "screen.kicraft.stats.race_bonus": "Race bonus",
+  "screen.kicraft.stats.trained": "Trained level",
+  "screen.kicraft.stats.trained_hint": "Trained levels • ★ weakest • click for details",
+  "screen.kicraft.stats.weakest": "★ One of your weakest trained stats",
+  "screen.kicraft.stats.xp": "XP / next level"
 }

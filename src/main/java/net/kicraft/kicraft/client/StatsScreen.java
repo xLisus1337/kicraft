@@ -24,7 +24,8 @@ public final class StatsScreen extends RadialMenuScreen {
         for (KiStat stat : KiStat.values()) {
             double required = data.statXpRequired(stat);
             double progress = required <= 0.0 ? 0.0 : Math.max(0.0, Math.min(1.0, data.statXp(stat) / required));
-            entries.add(new RadialEntry(stat.name(), Component.translatable(stat.translationKey()), Component.literal(fmt(data.stat(stat)) + "  " + Math.round(progress * 100.0) + "%")));
+            entries.add(new RadialEntry(stat.name(), Component.translatable(stat.translationKey()), Component.literal(
+                    (data.weakestStats().contains(stat) ? "★ " : "") + fmt(data.trainedStat(stat)) + "  " + Math.round(progress * 100.0) + "%")));
         }
         if (data.isGodKiUnlocked()) {
             entries.add(new RadialEntry("GOD_KI", Component.literal("God Ki"), Component.literal(fmt(data.godKi()))));
@@ -34,7 +35,12 @@ public final class StatsScreen extends RadialMenuScreen {
 
     @Override
     protected List<Component> coreLines(PlayerData data) {
-        return List.of(Component.translatable("screen.kicraft.stats.title"));
+        return List.of(Component.translatable("screen.kicraft.stats.trained_hint"));
+    }
+
+    @Override
+    protected void onEntrySelected(RadialEntry entry) {
+        if (!entry.id().equals("GOD_KI")) minecraft.setScreen(new StatDetailsScreen(this, KiStat.valueOf(entry.id())));
     }
 
     private static String fmt(double value) {

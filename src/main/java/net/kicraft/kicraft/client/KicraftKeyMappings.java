@@ -92,7 +92,7 @@ public final class KicraftKeyMappings {
         event.register(OPEN_TRAINING);
         event.register(CHARGE_KI);
         event.register(DASH);
-        event.register(BLOCK);
+        if (net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED) event.register(BLOCK);
         event.register(LOCK_ON);
         event.register(CYCLE_LOCK_ON);
         event.register(SHOULDER_CAMERA);

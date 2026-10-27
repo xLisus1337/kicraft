@@ -28,9 +28,13 @@ public record MeleeInputPacket(AttackSide side) {
     public boolean handle(Supplier<NetworkEvent.Context> supplier) {
         NetworkEvent.Context context = supplier.get();
         context.enqueueWork(() -> {
-            if (context.getSender() != null) MeleeCombat.input(context.getSender(), side);
+            if (context.getSender() != null) apply(context.getSender());
         });
         context.setPacketHandled(true);
         return true;
+    }
+
+    public void apply(net.minecraft.server.level.ServerPlayer player) {
+        if (net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED) MeleeCombat.input(player, side);
     }
 }

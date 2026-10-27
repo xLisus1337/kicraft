@@ -254,7 +254,8 @@ public final class ClientInputEvents {
     }
 
     private static boolean isBlockRequested() {
-        return acceptsGameplayInput(Minecraft.getInstance()) && KicraftKeyMappings.BLOCK.isDown();
+        return net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED
+                && acceptsGameplayInput(Minecraft.getInstance()) && KicraftKeyMappings.BLOCK.isDown();
     }
 
     private static boolean acceptsGameplayInput(Minecraft minecraft) {
@@ -410,7 +411,7 @@ public final class ClientInputEvents {
     }
 
     private static void alignPlayerToLockOnTarget(Minecraft minecraft) {
-        if (!acceptsGameplayInput(minecraft) || !ClientLockOnData.isLocked()) {
+        if (ClientOozaruFocus.isLocked() || !acceptsGameplayInput(minecraft) || !ClientLockOnData.isLocked()) {
             return;
         }
 

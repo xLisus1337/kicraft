@@ -61,6 +61,7 @@ public final class PlayerDataEvents {
     @SubscribeEvent
     public static void login(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             LockOnState.clear(player);
             FlightManeuverSystem.clear(player);
@@ -81,10 +82,10 @@ public final class PlayerDataEvents {
     @SubscribeEvent
     public static void logout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             LockOnState.clear(player);
             FlightManeuverSystem.clear(player);
-            DiscordBugReportService.clear(player);
             DEATH_SNAPSHOTS.remove(player.getUUID());
             PENDING_SYNCS.remove(player.getUUID());
             LAST_SYNC_TICKS.remove(player.getUUID());
@@ -99,6 +100,7 @@ public final class PlayerDataEvents {
     @SubscribeEvent
     public static void death(LivingDeathEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             LockOnState.clear(player);
             FlightManeuverSystem.cancel(player);
@@ -122,6 +124,7 @@ public final class PlayerDataEvents {
     @SubscribeEvent
     public static void respawn(PlayerEvent.PlayerRespawnEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             LockOnState.clear(player);
             FlightManeuverSystem.cancel(player);
@@ -165,6 +168,7 @@ public final class PlayerDataEvents {
     @SubscribeEvent
     public static void changedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             LockOnState.clear(player);
             FlightManeuverSystem.cancel(player);
@@ -181,6 +185,8 @@ public final class PlayerDataEvents {
         DEATH_SNAPSHOTS.clear();
         PENDING_SYNCS.clear();
         LAST_SYNC_TICKS.clear();
+        DiscordBugReportService.clearAll();
+        OozaruTransformationSystem.clearAll();
         FlightManeuverSystem.clearAll();
     }
 

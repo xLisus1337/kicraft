@@ -14,10 +14,10 @@ public abstract class MouseHandlerMixin {
     @Redirect(
             method = "turnPlayer",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;turn(DD)V"),
-            require = 0
+            require = 1
     )
     private void kicraft$disableMouseLookDuringLockOn(LocalPlayer player, double yaw, double pitch) {
-        if (ClientLockOnData.isLocked()) {
+        if (net.kicraft.kicraft.client.ClientOozaruFocus.isLocked() || ClientLockOnData.isLocked()) {
             return;
         }
         if (ClientFlightStates.isFlying(player)) {

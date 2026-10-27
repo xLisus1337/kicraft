@@ -68,6 +68,64 @@ public final class MultiplayerGameTests {
     private static final String ARENA = "melee_arena";
 
     @GameTest(template = ARENA)
+    public static void vanillaCombatRejectsCustomPacketsAndKeepsNormalCooldown(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2), b = fighter(h, 2, 4);
+        double stamina = data(a).stamina();
+        new MeleeInputPacket(MeleeInputPacket.AttackSide.RIGHT).apply(a);
+        new net.kicraft.kicraft.network.BlockPacket(true).apply(b);
+        h.assertTrue(b.getHealth() == 20 && data(a).stamina() == stamina && !CombatState.isBlocking(b),
+                "Custom punch and bare-handed guard packets must be inactive in vanilla combat mode");
+        a.attack(b);
+        h.assertTrue(b.getHealth() < 20 && a.getAttackStrengthScale(0) < 0.1F,
+                "A vanilla attack must hit and start Minecraft's normal cooldown");
+        h.assertTrue(data(a).statXp(KiStat.STRENGTH) > 0 && data(a).stamina() < stamina,
+                "Vanilla hits must still train mod stats and use stamina");
+        float health = b.getHealth();
+        a.attack(b);
+        h.assertTrue(b.getHealth() == health, "Repeating a hit must preserve vanilla hurt immunity");
+        var speed = a.getAttribute(Attributes.ATTACK_SPEED);
+        UUID legacy = UUID.fromString("f347b78f-b0c1-4be3-b1c4-02a2549ca28f");
+        speed.addTransientModifier(new AttributeModifier(legacy, "Old exhaustion", -0.75, AttributeModifier.Operation.MULTIPLY_TOTAL));
+        data(a).setStamina(0);
+        ResourceTickEvents.playerTick(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, a));
+        h.assertTrue(speed.getModifier(legacy) == null && speed.getValue() == 4.0,
+                "Exhaustion must not replace Minecraft's attack cooldown");
+        finish(h, a, b);
+    }
+
+    @GameTest(template = ARENA)
+    public static void vanillaShieldStillBlocksAndStatsStillScaleDamage(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2), b = fighter(h, 2, 4);
+        b.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
+        b.setYHeadRot(b.getYRot());
+        b.startUsingItem(InteractionHand.OFF_HAND);
+        for (int tick = 0; tick < 6; tick++) b.tickUsingItem();
+        h.assertTrue(b.isBlocking(), "Setup must raise the vanilla shield");
+        h.assertTrue(b.isDamageSourceBlocked(a.damageSources().playerAttack(a)), "Shield must face the attacker");
+        a.attack(b);
+        h.assertTrue(b.getHealth() == 20, "A vanilla shield must stop a frontal attack");
+        b.stopUsingItem();
+        data(a).setStamina(data(a).maxStamina());
+        data(a).setStat(KiStat.STRENGTH, 100);
+        var hit = new net.minecraftforge.event.entity.living.LivingDamageEvent(b, a.damageSources().playerAttack(a), 2.0F);
+        TrainingEvents.damageTraining(hit);
+        h.assertTrue(hit.getAmount() > 2.0F, "Mod strength must still scale ordinary melee damage");
+        h.assertTrue(!b.hasEffect(MobEffects.MOVEMENT_SLOWDOWN), "Vanilla combat must not add custom hit stagger");
+        finish(h, a, b);
+    }
+
+    @GameTest(template = ARENA)
+    public static void fullyAbsorbedVanillaHitCannotRegainDamageFromStats(GameTestHelper h) {
+        Fighter a = fighter(h, 2, 2), b = fighter(h, 2, 4);
+        b.setAbsorptionAmount(20.0F);
+        data(a).setStat(KiStat.STRENGTH, 100);
+        a.attack(b);
+        h.assertTrue(b.getHealth() == 20.0F && b.getAbsorptionAmount() < 20.0F,
+                "A hit fully absorbed by golden hearts must not become positive HP damage through stat scaling");
+        finish(h, a, b);
+    }
+
+    @GameTest(template = ARENA)
     public static void resourceTicksPreserveExternalReachAndMeleeUsesIt(GameTestHelper h) {
         Fighter a = fighter(h, 2, 2), b = fighter(h, 2, 6);
         var reach = a.getAttribute(ForgeMod.ENTITY_REACH.get());
@@ -101,7 +159,10 @@ public final class MultiplayerGameTests {
             ResourceTickEvents.playerTick(new TickEvent.PlayerTickEvent(TickEvent.Phase.END, a));
             PlayerDataEvents.requestSync(a);
         }
-        data(a).train(KiStat.STRENGTH, data(a).statXpRequired(KiStat.STRENGTH));
+        double previousStrength = data(a).stat(KiStat.STRENGTH);
+        // Human strength training credits only 92% of the supplied XP.
+        data(a).train(KiStat.STRENGTH, 2.0 * data(a).statXpRequired(KiStat.STRENGTH));
+        h.assertTrue(data(a).stat(KiStat.STRENGTH) > previousStrength, "Setup must earn a level");
         PlayerDataEvents.requestSync(a);
         h.assertTrue(recorder.states.size() == 1, "Periodic requests must not send immediately");
         h.runAfterDelay(2, () -> {
@@ -543,6 +604,30 @@ public final class MultiplayerGameTests {
     }
 
     @GameTest(template = ARENA)
+    public static void fallsNeverTrainDurabilityForAnyRace(GameTestHelper h) {
+        Fighter victim = fighter(h, 2, 2), attacker = fighter(h, 2, 4);
+        for (KiRace race : KiRace.values()) {
+            data(victim).setRace(race);
+            victim.setHealth(6);
+            data(victim).setHp(data(victim).maxHp() * 0.25);
+            double level = data(victim).trainedStat(KiStat.DURABILITY);
+            double xp = data(victim).statXp(KiStat.DURABILITY);
+            victim.invulnerableTime = 0;
+            victim.hurt(victim.damageSources().fall(), 2.0F);
+            h.assertTrue(victim.getHealth() < 6, "Fall damage must still hurt " + race);
+            h.assertTrue(data(victim).trainedStat(KiStat.DURABILITY) == level
+                            && data(victim).statXp(KiStat.DURABILITY) == xp,
+                    "Falls must not train Durability, including racial and low-health bonuses: " + race);
+            victim.invulnerableTime = 0;
+            victim.hurt(victim.damageSources().playerAttack(attacker), 1.0F);
+            h.assertTrue(data(victim).trainedStat(KiStat.DURABILITY) > level
+                            || data(victim).statXp(KiStat.DURABILITY) > xp,
+                    "Combat damage must still train Durability for " + race);
+        }
+        finish(h, victim, attacker);
+    }
+
+    @GameTest(template = ARENA)
     public static void flightUnlockDoesNotGrantPermanentFallImmunity(GameTestHelper h) {
         Fighter a = fighter(h, 2, 2);
         ServerKiState.setFlying(a, false);
@@ -677,15 +762,17 @@ public final class MultiplayerGameTests {
         for (Fighter p : players) { PlayerDataEvents.logout(new PlayerEvent.PlayerLoggedOutEvent(p)); p.discard(); }
         h.succeed();
     }
-    private static final class SyncRecorder extends ServerGamePacketListenerImpl {
+    private static final class SyncRecorder extends Connection {
         final List<PlayerDataSyncPacket> states = new ArrayList<>();
         final List<StatLevelUpPacket> levelUps = new ArrayList<>();
         final List<Long> ticks = new ArrayList<>();
         private final Fighter owner;
 
         SyncRecorder(Fighter player) {
-            super(player.server, new Connection(PacketFlow.SERVERBOUND), player);
+            super(PacketFlow.SERVERBOUND);
             owner = player;
+            // Forge's PLAYER distributor sends directly through the Connection.
+            new ServerGamePacketListenerImpl(player.server, this, player);
         }
 
         PlayerDataSyncPacket last() { return states.get(states.size() - 1); }
@@ -697,7 +784,7 @@ public final class MultiplayerGameTests {
                     || !payload.getIdentifier().toString().equals("kicraft:main")) return;
             FriendlyByteBuf buffer = payload.getData();
             try {
-                // These are the first two registrations in KicraftNetwork (protocol 16).
+                // These are the first two registrations in KicraftNetwork.
                 int id = buffer.readVarInt();
                 if (id == 0) {
                     states.add(new PlayerDataSyncPacket(buffer));
@@ -720,6 +807,7 @@ public final class MultiplayerGameTests {
         }
         @Override public boolean isInvulnerableTo(DamageSource source) { return false; }
         void finishFood() { completeUsingItem(); }
+        void tickUsingItem() { updateUsingItem(getUseItem()); } // FakePlayer.tick() is deliberately empty.
         @Override public boolean canHarmPlayer(Player other) {
             return getTeam() == null || !getTeam().isAlliedTo(other.getTeam()) || getTeam().isAllowFriendlyFire();
         }

@@ -27,10 +27,8 @@ import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = Kicraft.MODID)
 public final class ResourceTickEvents {
-    private static final String OOZARU_GAZE_TICKS_TAG = "kicraftOozaruGazeTicks";
     private static final String TRANSFORMATION_DESTABILIZE_TICKS_TAG = "kicraftTransformationDestabilizeTicks";
     private static final UUID EXHAUSTED_ATTACK_SPEED_MODIFIER_ID = UUID.fromString("f347b78f-b0c1-4be3-b1c4-02a2549ca28f");
-    private static final int OOZARU_GAZE_REQUIRED_TICKS = 60;
     private static final int TRANSFORMATION_DESTABILIZE_LIMIT_TICKS = 50;
     private static final UUID TRANSFORMATION_SPEED_MODIFIER_ID = UUID.fromString("f106a651-8d2e-4d45-89e6-8a00513d5c67");
 
@@ -66,10 +64,12 @@ public final class ResourceTickEvents {
         }
 
         if (!player.isAlive() || player.isDeadOrDying() || player.getHealth() <= 0.0F) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             return;
         }
         if (player.isSpectator()) {
+            OozaruTransformationSystem.clear(player);
             ServerKiState.clear(player);
             return;
         }
@@ -123,7 +123,7 @@ public final class ResourceTickEvents {
             changed |= updateFlight(player, data);
             FlightManeuverSystem.tick(player);
             changed |= updateKiTransfer(player, data);
-            changed |= updateOozaruTrigger(player, data);
+            changed |= OozaruTransformationSystem.tick(player, data);
             changed |= updateTransformation(player, data);
             player.getFoodData().setFoodLevel(20);
             player.getFoodData().setSaturation(0.0F);
@@ -469,69 +469,6 @@ public final class ResourceTickEvents {
         };
     }
 
-    private static boolean updateOozaruTrigger(ServerPlayer player, net.kicraft.kicraft.core.player.PlayerData data) {
-        if (data.isLegendarySaiyan() || data.race() != KiRace.SAIYAN && data.race() != KiRace.HALF_SAIYAN) {
-            return false;
-        }
-        if (!data.hasTail()) {
-            if (data.activeTransformation() == KiTransformation.OOZARU || data.activeTransformation() == KiTransformation.GOLDEN_OOZARU) {
-                data.activateTransformation(KiTransformation.BASE);
-                return true;
-            }
-            return false;
-        }
-
-        boolean fullMoon = isFullMoonNight(player);
-        boolean lookingAtMoon = fullMoon && isLookingAtMoon(player);
-        if (!fullMoon) {
-            player.getPersistentData().putInt(OOZARU_GAZE_TICKS_TAG, 0);
-        }
-
-        if (fullMoon && data.activeTransformation() == KiTransformation.BASE) {
-            if (lookingAtMoon) {
-                int gazeTicks = player.getPersistentData().getInt(OOZARU_GAZE_TICKS_TAG) + 1;
-                player.getPersistentData().putInt(OOZARU_GAZE_TICKS_TAG, gazeTicks);
-                player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 4, 6, false, false, false));
-                if (gazeTicks == 1 || gazeTicks % 20 == 0) {
-                    player.displayClientMessage(Component.translatable("message.kicraft.oozaru_focus"), true);
-                }
-                if (gazeTicks < OOZARU_GAZE_REQUIRED_TICKS) {
-                    return true;
-                }
-            } else {
-                if (player.getPersistentData().getInt(OOZARU_GAZE_TICKS_TAG) > 0) {
-                    player.getPersistentData().putInt(OOZARU_GAZE_TICKS_TAG, 0);
-                    return true;
-                }
-                return false;
-            }
-        }
-
-        boolean canTransform = fullMoon && lookingAtMoon && player.getPersistentData().getInt(OOZARU_GAZE_TICKS_TAG) >= OOZARU_GAZE_REQUIRED_TICKS;
-        if (canTransform && data.activeTransformation() == KiTransformation.BASE) {
-            player.getPersistentData().putInt(OOZARU_GAZE_TICKS_TAG, 0);
-            data.activateTransformation(KiTransformation.OOZARU);
-            player.displayClientMessage(Component.translatable("message.kicraft.oozaru_triggered"), true);
-            return true;
-        }
-
-        if (!fullMoon && (data.activeTransformation() == KiTransformation.OOZARU || data.activeTransformation() == KiTransformation.GOLDEN_OOZARU)) {
-            data.activateTransformation(KiTransformation.BASE);
-            return true;
-        }
-        return false;
-    }
-
-    private static boolean isFullMoonNight(ServerPlayer player) {
-        long dayTime = player.level().getDayTime() % 24000L;
-        boolean night = dayTime >= 13000L && dayTime <= 23000L;
-        return night && player.level().getMoonPhase() == 0 && player.level().canSeeSky(player.blockPosition().above());
-    }
-
-    private static boolean isLookingAtMoon(ServerPlayer player) {
-        return player.getXRot() < -45.0F;
-    }
-
     private static void syncVanillaAttributes(ServerPlayer player, net.kicraft.kicraft.core.player.PlayerData data) {
         AttributeInstance maxHealth = player.getAttribute(Attributes.MAX_HEALTH);
         if (maxHealth != null) {
@@ -589,7 +526,8 @@ public final class ResourceTickEvents {
             return;
         }
 
-        boolean exhausted = StaminaSystem.isAttackExhausted(data);
+        boolean exhausted = net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED
+                && StaminaSystem.isAttackExhausted(data);
         AttributeModifier current = attackSpeed.getModifier(EXHAUSTED_ATTACK_SPEED_MODIFIER_ID);
         if (!exhausted) {
             if (current != null) {

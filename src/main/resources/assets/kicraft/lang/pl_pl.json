@@ -98,7 +98,7 @@
   "message.kicraft.oozaru_triggered": "Pełnia budzi twoją pierwotną moc.",
   "message.kicraft.ssj4_unlocked": "SSJ4 przebudzone.",
   "message.kicraft.ssj4_locked": "SSJ4 wymaga SSJ3 mastery na 80%.",
-  "message.kicraft.oozaru_focus": "Nie odwracaj wzroku od księżyca.",
+  "message.kicraft.oozaru_focus": "Pełnia przyciąga twój wzrok. Rozpoczyna się przemiana...",
   "message.kicraft.no_higher_transformation": "Brak gotowej wyższej transformacji.",
   "message.kicraft.shoulder_camera.off": "Kamera zza pleców: wyłączona",
   "message.kicraft.shoulder_camera.right": "Kamera zza pleców: prawa",
@@ -283,5 +283,18 @@
   "combat.kicraft.interrupted": "Atak niedostępny",
   "screen.kicraft.hotbar.melee_hint": "%s: cios • 4%% szansy na potężny cios powyżej 60%% staminy • %s: blok / parowanie",
   "combat.kicraft.combo": "Combo %s/%s",
-  "combat.kicraft.combo_finisher": "Combo %s/%s — FINISHER!"
+  "combat.kicraft.combo_finisher": "Combo %s/%s — FINISHER!",
+  "screen.kicraft.stats.base_value": "Poziom z bonusem rasy",
+  "screen.kicraft.stats.effect.durability": "Maks. HP / redukcja obrażeń",
+  "screen.kicraft.stats.effect.ki_control": "Bazowy koszt Ki Blast",
+  "screen.kicraft.stats.effect.max_ki": "Maksymalne Ki",
+  "screen.kicraft.stats.effect.stamina": "Zapas / mnożnik kosztów staminy",
+  "screen.kicraft.stats.effect.strength": "Mnożnik ciosu przed staminą",
+  "screen.kicraft.stats.form_factor": "Parametr aktywnej formy",
+  "screen.kicraft.stats.form_hint": "Forma wpływa na efekt, nie na zapisany poziom",
+  "screen.kicraft.stats.race_bonus": "Bonus rasy",
+  "screen.kicraft.stats.trained": "Poziom treningowy",
+  "screen.kicraft.stats.trained_hint": "Poziomy treningowe • ★ najsłabsze • kliknij po szczegóły",
+  "screen.kicraft.stats.weakest": "★ Jedna z najsłabszych statystyk treningowych",
+  "screen.kicraft.stats.xp": "XP / następny poziom"
 }

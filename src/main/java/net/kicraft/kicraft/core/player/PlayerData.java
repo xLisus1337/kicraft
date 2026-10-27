@@ -17,7 +17,7 @@ public final class PlayerData {
     private static final double KI_PER_MAX_KI_LEVEL = 15.0;
     private static final int DEFAULT_KI_COLOR = 0x45DFFF;
     private static final int BALANCE_VERSION = 2;
-    private static final int DATA_VERSION = 4;
+    private static final int DATA_VERSION = 5;
     public static final double MAX_LEVEL = 1.0E21;
     private static final double LEGENDARY_SAIYAN_KI_CONTROL_TRAINING_MULTIPLIER = 0.40;
 
@@ -43,6 +43,7 @@ public final class PlayerData {
     private int dataVersion = DATA_VERSION;
     private boolean dirty = true;
 
+    // DataVersion 5: trained levels only. Computed racial/form bonuses are never saved here.
     private final EnumMap<KiStat, Double> stats = new EnumMap<>(KiStat.class);
     private final EnumMap<KiStat, Double> statXp = new EnumMap<>(KiStat.class);
     private final EnumMap<KiStat, Integer> pendingLevelUps = new EnumMap<>(KiStat.class);
@@ -305,8 +306,56 @@ public final class PlayerData {
         return isLegendarySaiyan() ? berserkControl : 0.0;
     }
 
+    /** Gameplay base value: trained level plus race bonus, before form-specific formulas. */
     public double stat(KiStat stat) {
+        return capStatLevel(trainedStat(stat) + racialStatBonus(stat));
+    }
+
+    /** Only earned levels; race and active form never modify this value. */
+    public double trainedStat(KiStat stat) {
         return stats.getOrDefault(stat, 1.0);
+    }
+
+    public double racialStatBonus(KiStat stat) {
+        return racialBaseStat(stat) - 1.0;
+    }
+
+    public StatBreakdown statBreakdown(KiStat stat) {
+        double form = switch (stat) {
+            case STRENGTH -> activeStrengthMultiplier();
+            case DURABILITY -> activeDurabilityMultiplier();
+            default -> 1.0;
+        };
+        return new StatBreakdown(trainedStat(stat), racialStatBonus(stat), stat(stat), form);
+    }
+
+    /** All equally weakest levels. The daily selector will later apply its history tie-break. */
+    public Set<KiStat> weakestStats() {
+        double minimum = Double.POSITIVE_INFINITY;
+        EnumSet<KiStat> weakest = EnumSet.noneOf(KiStat.class);
+        for (KiStat stat : KiStat.values()) {
+            int comparison = Double.compare(trainedStat(stat), minimum);
+            if (comparison < 0) {
+                minimum = trainedStat(stat);
+                weakest.clear();
+            }
+            if (comparison <= 0) weakest.add(stat);
+        }
+        return Set.copyOf(weakest);
+    }
+
+    /** Form multipliers are converted by combat formulas, not multiplied into stored levels. */
+    public record StatBreakdown(double trainedLevel, double racialBonus, double baseValue, double formMultiplier) { }
+
+    public double meleeDamageMultiplier() {
+        double tier = Math.log10(Math.max(1.0, stat(KiStat.STRENGTH)));
+        return (1.0 + Math.pow(tier, 2.70) * 0.62) * Math.sqrt(Math.max(1.0, activeStrengthMultiplier()));
+    }
+
+    public double damageReduction() {
+        double statReduction = Math.log10(Math.max(1.0, stat(KiStat.DURABILITY))) * 0.075;
+        double formReduction = Math.log10(Math.max(1.0, activeDurabilityMultiplier())) * 0.075;
+        return Math.min(0.72, statReduction + formReduction);
     }
 
     public boolean hasTechnique(KiTechnique technique) {
@@ -461,6 +510,7 @@ public final class PlayerData {
         return joiner.toString();
     }
 
+    /** Sets the trained level, without race or form bonuses. */
     public void setStat(KiStat stat, double value) {
         boolean hpWasFull = isHpFull();
         boolean kiWasFull = isKiFull();
@@ -508,7 +558,7 @@ public final class PlayerData {
     }
 
     public double statXpRequired(KiStat stat) {
-        double value = Math.max(1.0, stat(stat));
+        double value = Math.max(1.0, trainedStat(stat));
         if (value >= MAX_LEVEL) {
             return Double.POSITIVE_INFINITY;
         }
@@ -522,7 +572,7 @@ public final class PlayerData {
         if (amount <= 0.0) {
             return 0.0;
         }
-        if (stat(stat) >= MAX_LEVEL) {
+        if (trainedStat(stat) >= MAX_LEVEL) {
             statXp.put(stat, 0.0);
             return 0.0;
         }
@@ -550,7 +600,7 @@ public final class PlayerData {
         EnumMap<KiStat, Double> notifications = new EnumMap<>(KiStat.class);
         for (KiStat stat : KiStat.values()) {
             if (pendingLevelUps.getOrDefault(stat, 0) > 0) {
-                notifications.put(stat, stat(stat));
+                notifications.put(stat, trainedStat(stat));
                 pendingLevelUps.put(stat, 0);
             }
         }
@@ -709,6 +759,13 @@ public final class PlayerData {
                     : 0.0);
         }
         migrateStarterBalanceIfNeeded();
+        // Version 4 stored the additive racial starting bonus inside Stats.
+        // Remove it once; XP and all unrelated character progress stay intact.
+        if (storedDataVersion < 5) {
+            for (KiStat stat : KiStat.values()) {
+                stats.put(stat, capStatLevel(trainedStat(stat) - racialStatBonus(stat)));
+            }
+        }
         migrateDataIfNeeded(storedDataVersion, tag);
         techniques.clear();
         CompoundTag techniquesTag = tag.getCompound("Techniques");
@@ -860,8 +917,8 @@ public final class PlayerData {
         }
 
         for (KiStat stat : KiStat.values()) {
-            double safeLevel = capStatLevel(stat(stat));
-            if (Double.compare(safeLevel, stat(stat)) != 0) {
+            double safeLevel = capStatLevel(trainedStat(stat));
+            if (Double.compare(safeLevel, trainedStat(stat)) != 0) {
                 stats.put(stat, safeLevel);
                 changed = true;
             }
@@ -974,14 +1031,14 @@ public final class PlayerData {
     }
 
     private void convertLegacyResourceLevels() {
-        stats.put(KiStat.MAX_KI, capStatLevel(stat(KiStat.MAX_KI) / 100.0));
-        stats.put(KiStat.STAMINA, capStatLevel(stat(KiStat.STAMINA) / 100.0));
+        stats.put(KiStat.MAX_KI, capStatLevel(trainedStat(KiStat.MAX_KI) / 100.0));
+        stats.put(KiStat.STAMINA, capStatLevel(trainedStat(KiStat.STAMINA) / 100.0));
         statXp.put(KiStat.MAX_KI, 0.0);
         statXp.put(KiStat.STAMINA, 0.0);
     }
 
     private void capOldStarterStat(KiStat stat, double oldStarterMaximum, double newStarterValue) {
-        if (stat(stat) <= oldStarterMaximum) {
+        if (trainedStat(stat) <= oldStarterMaximum) {
             stats.put(stat, capStatLevel(newStarterValue));
             statXp.put(stat, 0.0);
         }
@@ -990,12 +1047,12 @@ public final class PlayerData {
     private int processTraining(KiStat stat) {
         int gainedLevels = 0;
         int guard = 0;
-        while (stat(stat) < MAX_LEVEL && statXp(stat) >= statXpRequired(stat) && guard++ < 1000) {
+        while (trainedStat(stat) < MAX_LEVEL && statXp(stat) >= statXpRequired(stat) && guard++ < 1000) {
             statXp.put(stat, statXp(stat) - statXpRequired(stat));
-            stats.put(stat, Math.min(MAX_LEVEL, stat(stat) + 1.0));
+            stats.put(stat, Math.min(MAX_LEVEL, trainedStat(stat) + 1.0));
             gainedLevels++;
         }
-        if (stat(stat) >= MAX_LEVEL) {
+        if (trainedStat(stat) >= MAX_LEVEL) {
             statXp.put(stat, 0.0);
         }
         return gainedLevels;
@@ -1172,60 +1229,9 @@ public final class PlayerData {
     }
 
     private boolean enforceRaceIdentityBaseline() {
-        boolean changed = false;
-        switch (race) {
-            case SAIYAN -> {
-                changed |= setMinimumStat(KiStat.STRENGTH, 1.15);
-                changed |= setMinimumStat(KiStat.STAMINA, 1.10);
-                changed |= setMinimumStat(KiStat.KI_CONTROL, 1.0);
-            }
-            case HALF_SAIYAN -> {
-                changed |= setMinimumStat(KiStat.STRENGTH, 1.08);
-                changed |= setMinimumStat(KiStat.KI_CONTROL, 1.12);
-                changed |= setMinimumStat(KiStat.STAMINA, 1.08);
-            }
-            case HUMAN -> {
-                changed |= setMinimumStat(KiStat.KI_CONTROL, 1.18);
-                if (focus < 1.35) {
-                    focus = 1.35;
-                    changed = true;
-                }
-            }
-            case NAMEKIAN -> {
-                changed |= setMinimumStat(KiStat.DURABILITY, 1.25);
-                changed |= setMinimumStat(KiStat.MAX_KI, 1.12);
-                changed |= setMinimumStat(KiStat.KI_CONTROL, 1.12);
-            }
-            case FROST_DEMON -> {
-                changed |= setMinimumStat(KiStat.STRENGTH, 1.12);
-                changed |= setMinimumStat(KiStat.MAX_KI, 1.18);
-                changed |= setMinimumStat(KiStat.KI_CONTROL, 1.12);
-            }
-            case ANDROID -> {
-                changed |= setMinimumStat(KiStat.STRENGTH, 1.08);
-                changed |= setMinimumStat(KiStat.DURABILITY, 1.15);
-                changed |= setMinimumStat(KiStat.STAMINA, 1.0);
-                changed |= setMinimumStat(KiStat.MAX_KI, 1.0);
-            }
-            case BIO_ANDROID -> {
-                changed |= setMinimumStat(KiStat.STRENGTH, 1.08);
-                changed |= setMinimumStat(KiStat.DURABILITY, 1.10);
-                changed |= setMinimumStat(KiStat.MAX_KI, 1.10);
-            }
-            case MAJIN -> {
-                changed |= setMinimumStat(KiStat.DURABILITY, 1.25);
-                changed |= setMinimumStat(KiStat.STAMINA, 1.12);
-                changed |= setMinimumStat(KiStat.KI_CONTROL, 1.0);
-            }
-            default -> {
-            }
-        }
-        return changed;
-    }
-
-    private boolean setMinimumStat(KiStat stat, double minimum) {
-        if (stat(stat) < minimum) {
-            stats.put(stat, capStatLevel(minimum));
+        // The five stat bonuses are computed, never written into trained levels.
+        if (race == KiRace.HUMAN && focus < 1.35) {
+            focus = 1.35;
             return true;
         }
         return false;

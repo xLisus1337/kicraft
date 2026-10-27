@@ -22,7 +22,7 @@ import org.lwjgl.glfw.GLFW;
 @Mod.EventBusSubscriber(modid = Kicraft.MODID, value = Dist.CLIENT)
 public final class MeleeInput {
     // The custom mouse-combat input path remains disabled independently of world setup.
-    private static final boolean CUSTOM_MOUSE_PUNCHES_ENABLED = false;
+    private static final boolean CUSTOM_MOUSE_PUNCHES_ENABLED = net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED;
     private static final int PREDICTED_RECOVERY_TICKS = 6;
     private static int recoveryTicks;
     private static int exposedTicks;

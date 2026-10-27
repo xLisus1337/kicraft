@@ -24,18 +24,22 @@ public record BlockPacket(boolean blocking) {
             if (player == null) {
                 return;
             }
-            // A release must always clear an old guard, including after a game-mode change.
-            if (!blocking) {
-                CombatState.setBlocking(player, false);
-                return;
-            }
-            boolean canBlock = player.isAlive() && !player.isSpectator()
-                    && player.getCapability(PlayerDataCapability.PLAYER_DATA)
-                    .map(data -> data.isRaceChosen())
-                    .orElse(false);
-            CombatState.setBlocking(player, canBlock);
+            apply(player);
         });
         context.setPacketHandled(true);
         return true;
+    }
+
+    public void apply(ServerPlayer player) {
+        // A release must always clear an old guard, including after a game-mode change.
+        if (!net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED || !blocking) {
+            CombatState.setBlocking(player, false);
+            return;
+        }
+        boolean canBlock = player.isAlive() && !player.isSpectator()
+                && player.getCapability(PlayerDataCapability.PLAYER_DATA)
+                .map(data -> data.isRaceChosen())
+                .orElse(false);
+        CombatState.setBlocking(player, canBlock);
     }
 }

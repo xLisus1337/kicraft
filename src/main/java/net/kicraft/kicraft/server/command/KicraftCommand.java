@@ -203,7 +203,7 @@ public final class KicraftCommand {
                     return;
                 }
                 data.setStat(stat, value);
-                source.sendSuccess(() -> Component.translatable("commands.kicraft.set_stat", Component.translatable(stat.translationKey()), format(data.stat(stat))), true);
+                source.sendSuccess(() -> Component.translatable("commands.kicraft.set_stat", Component.translatable(stat.translationKey()), format(data.trainedStat(stat))), true);
             }
             refillResources(player);
             PlayerDataEvents.sync(player);

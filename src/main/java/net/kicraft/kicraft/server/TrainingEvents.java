@@ -8,6 +8,7 @@ import net.kicraft.kicraft.network.KicraftNetwork;
 import net.kicraft.kicraft.network.StatXpGainPacket;
 import net.kicraft.kicraft.server.capability.PlayerDataCapability;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -25,7 +26,7 @@ public final class TrainingEvents {
     private static final double EXHAUSTED_DAMAGE_MULTIPLIER = 0.15;
     private static final double EXHAUSTED_STAMINA_RATIO = 0.01;
     private static final double BLOCK_DAMAGE_REDUCTION = 0.70;
-    private static final double MAX_DURABILITY_DAMAGE_REDUCTION = 0.72;
+
     private static final double DUMMY_STRENGTH_XP_PER_HIT = 0.75;
     private static final double DUMMY_STAMINA_XP_PER_HIT = 0.18;
     private static final double DUMMY_XP_VARIANCE = 0.20;
@@ -35,6 +36,8 @@ public final class TrainingEvents {
 
     @SubscribeEvent
     public static void damageTraining(LivingDamageEvent event) {
+        // Vanilla shields/absorption may have already reduced this hit to zero.
+        if (event.getAmount() <= 0.0F) return;
         if (event.getSource().getEntity() instanceof ServerPlayer attacker) {
             attacker.getCapability(PlayerDataCapability.PLAYER_DATA).ifPresent(data -> {
                 float originalDamage = event.getAmount();
@@ -43,7 +46,7 @@ public final class TrainingEvents {
                 if (isMeleePlayerAttack(event)) {
                     EnumMap<KiStat, Double> combatXp = new EnumMap<>(KiStat.class);
                     recordXp(combatXp, KiStat.STAMINA, drainMeleeStamina(attacker, data));
-                    float strengthDamage = applyStrengthDamage(originalDamage, data.stat(KiStat.STRENGTH), data.activeTransformation(), data.transformationMastery(data.activeTransformation()));
+                    float strengthDamage = (float) Math.max(0.1, Math.min(Float.MAX_VALUE, originalDamage * data.meleeDamageMultiplier()));
                     float comboDamage = MeleeCombat.outgoingDamage(attacker, event.getEntity(), strengthDamage);
                     float adjustedDamage = applyStaminaDamagePenalty(comboDamage, data.stamina(), data.maxStamina());
                     event.setAmount(adjustedDamage);
@@ -76,18 +79,21 @@ public final class TrainingEvents {
                 applyBlock(victim, data, event);
                 float afterBlock = event.getAmount();
                 double durability = data.stat(KiStat.DURABILITY);
-                float reduced = applyDurabilityReduction(afterBlock, durability, data.activeTransformation(), data.transformationMastery(data.activeTransformation()));
+                float reduced = (float) Math.max(0.1, afterBlock * (1.0 - data.damageReduction()));
                 event.setAmount(reduced);
-                applyStagger(victim, afterBlock, durability);
+                if (net.kicraft.kicraft.core.combat.CombatRules.CUSTOM_MELEE_ENABLED) {
+                    applyStagger(victim, afterBlock, durability);
+                }
 
                 if (isDamageFromLivingEntity(event, victim)) {
                     MeleeCombat.interruptOnHit(victim);
                     CombatState.markCombat(victim, Math.max(0.1, incoming) * 0.12);
                 }
-                data.train(KiStat.DURABILITY, incoming * 0.28);
+                boolean trainsDurability = !event.getSource().is(DamageTypeTags.IS_FALL);
+                if (trainsDurability) data.train(KiStat.DURABILITY, incoming * 0.28);
                 data.trainTransformation(data.activeTransformation(), transformationCombatMasteryAmount(data.activeTransformation(), incoming, false));
                 if (victim.getHealth() - reduced <= victim.getMaxHealth() * 0.35) {
-                    data.train(KiStat.DURABILITY, incoming * 0.18);
+                    if (trainsDurability) data.train(KiStat.DURABILITY, incoming * 0.18);
                     data.trainTransformation(data.activeTransformation(), transformationCombatMasteryAmount(data.activeTransformation(), incoming, false) * 0.65);
                 }
                 PlayerDataEvents.sync(victim);
@@ -142,7 +148,9 @@ public final class TrainingEvents {
         event.setAmount((float) Math.max(0.1, incoming * (1.0 - reduction)));
         if (guardBroken) MeleeCombat.breakGuard(victim);
         data.train(KiStat.STAMINA, Math.max(0.01, cost * 0.004));
-        data.train(KiStat.DURABILITY, incoming * 0.055);
+        if (!event.getSource().is(DamageTypeTags.IS_FALL)) {
+            data.train(KiStat.DURABILITY, incoming * 0.055);
+        }
         CombatState.markCombat(victim, incoming * 0.18);
     }
 
@@ -161,22 +169,6 @@ public final class TrainingEvents {
     private static boolean isDamageFromLivingEntity(LivingDamageEvent event, ServerPlayer victim) {
         Entity attacker = event.getSource().getEntity();
         return attacker instanceof LivingEntity && attacker != victim && attacker.isAlive();
-    }
-
-    private static float applyDurabilityReduction(float damage, double durability, KiTransformation transformation, double mastery) {
-        double tier = Math.log10(1.0 + Math.max(0.0, durability - 1.0));
-        double formReduction = transformation.isBase() ? 0.0 : Math.log10(Math.max(1.0, transformation.durabilityMultiplier(mastery))) * 0.075;
-        double reduction = Math.min(MAX_DURABILITY_DAMAGE_REDUCTION, tier * 0.075 + formReduction);
-        return (float) Math.max(0.1, damage * (1.0 - reduction));
-    }
-
-    private static float applyStrengthDamage(float damage, double strength, KiTransformation transformation, double mastery) {
-        double trainedStrength = Math.max(0.0, strength - 1.0);
-        double tier = Math.log10(1.0 + trainedStrength);
-        double statMultiplier = trainedStrength <= 0.0 ? 1.0 : 1.0 + Math.pow(tier, 2.70) * 0.62;
-        double formMultiplier = transformation.isBase() ? 1.0 : Math.sqrt(Math.max(1.0, transformation.strengthMultiplier(mastery)));
-        double multiplier = statMultiplier * formMultiplier;
-        return (float) Math.max(0.1F, Math.min(Float.MAX_VALUE, damage * multiplier));
     }
 
     private static void recordXp(EnumMap<KiStat, Double> gains, KiStat stat, double amount) {
